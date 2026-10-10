@@ -14,7 +14,7 @@ export default function BookPicker({ data, currentBook, onSelect, onClose }: Pro
   const [testament, setTestament] = useState<'OT' | 'NT'>(BOOKS[currentBook].testament);
   const [book, setBook] = useState<number | null>(null);
   const [q, setQ] = useState('');
-  useBackClose(true, onClose);
+  useBackClose(true, () => (book !== null ? setBook(null) : onClose()));
 
   const parsed = q.trim() ? parseRef(q, data) : null;
   const go = () => { if (parsed) onSelect(parsed); };

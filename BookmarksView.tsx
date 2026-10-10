@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import ToolIcons from './ToolIcons';
 import { BibleData, buildCopyText, refLabel } from './bible';
 import { goTo, openTab, removeBookmark, updateBookmark, useStore } from './store';
 import { copyText, formatDate, toast } from './utils';
 
-export default function BookmarksView({ data }: { data: BibleData }) {
+export default function BookmarksView({ data, active }: { data: BibleData; active: boolean }) {
   const bookmarks = useStore(s => s.bookmarks);
   const lastPage = useStore(s => s.lastPage);
   const pageCount = useStore(s => s.settings.pageCount);
   const settings = useStore(s => s.settings);
   const [sort, setSort] = useState<'recent' | 'bible'>('recent');
   const [target, setTarget] = useState(Math.min(lastPage, pageCount - 1));
+  useEffect(() => { if (active) setTarget(Math.min(lastPage, pageCount - 1)); }, [active, lastPage, pageCount]);
   const [editing, setEditing] = useState<string | null>(null);
   const [memo, setMemo] = useState('');
   const [filter, setFilter] = useState('');
@@ -31,8 +33,8 @@ export default function BookmarksView({ data }: { data: BibleData }) {
   };
 
   return (
-    <div className="view">
-      <header className="vhead"><h1>북마크</h1><span className="count">{bookmarks.length}개</span></header>
+    <div className={'view' + (active ? '' : ' inactive')}>
+      <header className="vhead"><h1>북마크</h1><span className="count">{bookmarks.length}개</span><ToolIcons /></header>
       <div className="view-body">
         <div className="toolbar">
           <div className="seg small">

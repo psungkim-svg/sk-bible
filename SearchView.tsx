@@ -1,5 +1,8 @@
-import { Fragment, useMemo, useState } from 'react';
-import { BibleData, parseRef, refLabel, SearchHit, SearchScope, searchWords } from './bible';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { BibleData, buildCopyText, parseRef, refLabel, SearchHit, SearchScope, searchWords } from './bible';
+import { AiAnswer, askAi } from './ai';
+import ToolIcons from './ToolIcons';
+import { copyText, toast } from './utils';
 import { BOOKS } from './books';
 import { matchSegments, searchSentence, SentenceHit } from './sentenceSearch';
 import { addRecentSearch, goTo, openTab, SearchMode, setState, useStore } from './store';
@@ -7,7 +10,7 @@ import { PageChooser } from './BookmarksView';
 
 const PAGE = 100;
 
-export default function SearchView({ data }: { data: BibleData }) {
+export default function SearchView({ data, active }: { data: BibleData; active: boolean }) {
   const lastPage = useStore(s => s.lastPage);
   const pageCount = useStore(s => s.settings.pageCount);
   const recent = useStore(s => s.recentSearches);
@@ -24,12 +27,33 @@ export default function SearchView({ data }: { data: BibleData }) {
   const [sQuery, setSQuery] = useState('');
   const [shown, setShown] = useState(PAGE);
   const [busy, setBusy] = useState(false);
+  const settings = useStore(s => s.settings);
+  const [ai, setAi] = useState<{ stage?: string; answer?: AiAnswer; error?: string } | null>(null);
+  const aiCtl = useRef<AbortController | null>(null);
+  useEffect(() => { if (active) setTarget(Math.min(lastPage, pageCount - 1)); }, [active, lastPage, pageCount]);
+
+  const startAi = (s: string) => {
+    aiCtl.current?.abort();
+    if (!settings.aiSearch) { setAi(null); return; }
+    if (!navigator.onLine) { setAi({ error: '인터넷에 연결되어 있지 않아 AI 설명은 건너뜁니다. 아래는 폰 안에서 찾은 결과입니다.' }); return; }
+    const ctl = new AbortController();
+    aiCtl.current = ctl;
+    setAi({ stage: '질문을 이해하는 중…' });
+    askAi(data, s, stage => { if (!ctl.signal.aborted) setAi({ stage }); }, ctl.signal)
+      .then(answer => { if (!ctl.signal.aborted) setAi({ answer }); })
+      .catch(e => { if (!ctl.signal.aborted) setAi({ error: (e as Error).message || 'AI 답변을 받지 못했습니다' }); });
+  };
+  const copyOpts = { bookStyle: settings.copyBookStyle, refPosition: settings.copyRefPosition, verseNumbers: settings.copyVerseNumbers };
+  const copyVerse = async (b: number, c: number, v: number) => {
+    toast((await copyText(buildCopyText(data, b, c, [v], copyOpts))) ? '복사했습니다 📋' : '복사하지 못했습니다');
+  };
 
   const ref = q.trim() ? parseRef(q, data) : null;
 
   const setMode = (m: SearchMode) => {
     setState(() => ({ searchMode: m }));
     setHits(null); setSHits(null);
+    aiCtl.current?.abort(); setAi(null);
   };
 
   const run = (query = q, m: SearchMode = mode) => {
@@ -44,7 +68,9 @@ export default function SearchView({ data }: { data: BibleData }) {
       setTerms(s.split(/\s+/));
       setShown(PAGE);
       setBookFilter(null);
+      aiCtl.current?.abort(); setAi(null);
     } else {
+      startAi(s);
       setBusy(true);
       setHits(null);
       // 처음 한 번은 색인을 만드느라 1초 정도 걸릴 수 있어 화면을 먼저 그린 뒤 실행
@@ -68,11 +94,11 @@ export default function SearchView({ data }: { data: BibleData }) {
   }, [hits]);
   const filtered = hits ? (bookFilter === null ? hits : hits.filter(h => h.book === bookFilter)) : [];
   const ot = hits?.filter(h => h.book < 39).length ?? 0;
-  const nothingYet = hits === null && sHits === null && !busy;
+  const nothingYet = hits === null && sHits === null && !busy && !ai;
 
   return (
-    <div className="view">
-      <header className="vhead"><h1>검색</h1></header>
+    <div className={'view' + (active ? '' : ' inactive')}>
+      <header className="vhead"><h1>검색</h1><ToolIcons /></header>
       <div className="view-body">
         <div className="seg mode-seg">
           <button className={mode === 'word' ? 'on' : ''} onClick={() => setMode('word')}>🔤 단어 검색</button>
@@ -147,18 +173,64 @@ export default function SearchView({ data }: { data: BibleData }) {
               <li>예) <i>하나님이 세상을 너무 사랑해서 아들을 보내주셨다</i> → 요 3:16</li>
               <li>예) <i>능력 주시는 분 안에서 모든 것을 할수있다</i> → 빌 4:13</li>
               <li>띄어쓰기나 말끝(~다, ~라)이 달라도 괜찮습니다. 성경에 나오는 낱말이 많이 들어갈수록 더 잘 찾습니다.</li>
-              <li>인터넷 없이 폰 안에서 찾습니다.</li>
+              <li>인터넷이 되면 <b>AI가 질문을 이해해서</b> 구절과 뜻을 설명해 줍니다. 음성 입력 오타가 있어도 괜찮습니다.<br />예) <i>노아와 다니엘과 욥이 있어도 자기만 구원받는다는 성경 구절</i></li>
+              <li>인터넷이 없으면 폰 안에서 비슷한 글자의 구절을 찾습니다.</li>
             </ul>
           </div>
         ))}
 
         {busy && <div className="busy"><div className="spinner small" /> 찾는 중…</div>}
 
+        {/* ----- AI 설명 ----- */}
+        {ai && (
+          <div className="ai-card">
+            <div className="ai-head"><span className="ai-badge">AI</span> 성경 도우미</div>
+            {ai.stage && <div className="busy" style={{ padding: '6px 0' }}><div className="spinner small" /> {ai.stage}</div>}
+            {ai.error && <div className="ai-err">⚠️ {ai.error}</div>}
+            {ai.answer && (() => {
+              const a = ai.answer;
+              return (
+                <>
+                  {a.corrected && a.corrected !== sQuery && <div className="ai-corrected">이렇게 이해했습니다: “{a.corrected}”</div>}
+                  {a.intro && <p className="ai-intro">{a.intro}</p>}
+                  {a.interpretation && <p className="ai-interp">{a.interpretation}</p>}
+                  {a.matches.length > 0 && (
+                    <>
+                      <div className="ai-sec">📖 해당 성경 구절 (개역개정)</div>
+                      {a.matches.map(v => (
+                        <div key={`${v.book}:${v.chapter}:${v.verse}`} className="ai-verse">
+                          <div className="ref">{refLabel(v.book, v.chapter, [v.verse])}</div>
+                          <div className="txt">{v.text}</div>
+                          <div className="acts">
+                            <button onClick={() => open(v.book, v.chapter, v.verse)}>📖 열기</button>
+                            <button onClick={() => copyVerse(v.book, v.chapter, v.verse)}>📋 복사</button>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {a.points.length > 0 && (
+                    <>
+                      <div className="ai-sec">💡 구절의 핵심 의미</div>
+                      <ol className="ai-points">
+                        {a.points.map((p, i) => <li key={i}>{p.title && <b>{p.title}: </b>}{p.body}</li>)}
+                      </ol>
+                    </>
+                  )}
+                  <div className="ai-foot">
+                    <button onClick={() => startAi(sQuery)}>↻ 다시 묻기</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
         {/* ----- 문장으로 찾기 결과 ----- */}
         {sHits !== null && !busy && (
           <>
             <div className="result-summary">
-              {sHits.length ? <>비슷한 구절 <b>{sHits.length}</b>개 <span className="muted">(비슷한 순서)</span></> : '비슷한 구절을 찾지 못했습니다. 낱말을 조금 더 넣어 보세요.'}
+              {sHits.length ? <>{ai && <span className="muted">폰 안 검색 · </span>}글자가 비슷한 구절 <b>{sHits.length}</b>개 <span className="muted">(비슷한 순서)</span></> : '비슷한 구절을 찾지 못했습니다. 낱말을 조금 더 넣어 보세요.'}
             </div>
             {sHits.map((h, i) => (
               <button key={`${h.book}:${h.chapter}:${h.verse}`} className={'hit' + (i === 0 ? ' best' : '')} onClick={() => open(h.book, h.chapter, h.verse)}>

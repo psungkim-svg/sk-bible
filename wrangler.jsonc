@@ -1,8 +1,15 @@
 {
   "name": "sk-bible",
+  "main": "worker.js",
   "compatibility_date": "2025-09-01",
+  "workers_dev": true,
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "ai": {
+    "binding": "AI"
   }
 }

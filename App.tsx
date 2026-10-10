@@ -5,8 +5,8 @@ import BookmarksView from './BookmarksView';
 import Reader from './Reader';
 import SearchView from './SearchView';
 import SettingsView from './SettingsView';
-import { openTab, Tab, useStore } from './store';
-import { registerToast, useWakeLock } from './utils';
+import { navBack, openTab, Tab, useStore } from './store';
+import { initBackHandling, registerToast, setRootBack, useWakeLock } from './utils';
 
 const THEME_COLORS = { light: '#7a2e2e', sepia: '#6b4a2b', dark: '#15171c' };
 
@@ -23,6 +23,9 @@ export default function App() {
   useEffect(() => {
     let t: number;
     registerToast(msg => { setToastMsg(msg); clearTimeout(t); t = window.setTimeout(() => setToastMsg(''), 1800); });
+    // 안드로이드 뒤로 버튼 → 이전 화면
+    setRootBack(navBack);
+    initBackHandling();
   }, []);
 
   // 테마/글자 적용
@@ -31,13 +34,17 @@ export default function App() {
     root.dataset.theme = settings.theme;
     root.style.setProperty('--fs', settings.fontSize + 'px');
     root.style.setProperty('--lh', String(settings.lineHeight));
+    root.style.setProperty('--vg', settings.verseGap + 'px');
+    root.style.setProperty('--side', settings.sideMargin + 'px');
     root.dataset.font = settings.fontFamily;
+    root.dataset.vnum = settings.verseNumStyle;
+    root.dataset.wrap = settings.wrapMode;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[settings.theme]);
-  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily]);
+  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode]);
 
   // 페이지 개수를 줄였을 때
   useEffect(() => {
-    if (typeof tab === 'number' && tab >= settings.pageCount) openTab(0);
+    if (typeof tab === 'number' && tab >= settings.pageCount) openTab(0, false);
   }, [settings.pageCount, tab]);
 
   useWakeLock(settings.keepAwake && typeof tab === 'number');
@@ -51,41 +58,27 @@ export default function App() {
     <div className="app">
       <main className="main">
         {pageIdx.map(i => <Reader key={i} index={i} data={data} active={tab === i} />)}
-        {tab === 'bookmarks' && <BookmarksView data={data} />}
-        {tab === 'search' && <SearchView data={data} />}
-        {tab === 'settings' && <SettingsView />}
+        <BookmarksView data={data} active={tab === 'bookmarks'} />
+        <SearchView data={data} active={tab === 'search'} />
+        <SettingsView active={tab === 'settings'} />
       </main>
 
+      {/* 하단: 페이지마다 지금 읽는 곳(책 · 장 · 절)을 보여 줍니다 */}
       <nav className="bottom-nav">
-        {pageIdx.map(i => (
-          <NavBtn key={i} tab={i as Tab} cur={tab} cls="pg">
-            <span className="pg-num">{i + 1}</span>
-            <span className="pg-lbl">{BOOKS[pages[i].book].abbr}{pages[i].chapter}</span>
-          </NavBtn>
-        ))}
-        <NavBtn tab="bookmarks" cur={tab}>
-          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 3h12v18l-6-5-6 5z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg>
-          <span className="pg-lbl">북마크</span>
-        </NavBtn>
-        <NavBtn tab="search" cur={tab}>
-          <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M16 16l5 5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
-          <span className="pg-lbl">검색</span>
-        </NavBtn>
-        <NavBtn tab="settings" cur={tab}>
-          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
-          <span className="pg-lbl">설정</span>
-        </NavBtn>
+        {pageIdx.map(i => {
+          const p = pages[i];
+          const name = BOOKS[p.book].name;
+          const fs = name.length >= 7 ? 10.5 : name.length >= 6 ? 11.5 : name.length >= 5 ? 12.5 : 13.5;
+          return (
+            <button key={i} className={'nav-btn pg' + (tab === i ? ' on' : '')} onClick={() => openTab(i as Tab)}>
+              <span className="pg-book" style={{ fontSize: fs }}>{name}</span>
+              <span className="pg-cv">{p.chapter}{p.book === 18 ? '편' : '장'} {p.verse}절</span>
+            </button>
+          );
+        })}
       </nav>
 
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
-  );
-}
-
-function NavBtn({ tab, cur, cls = '', children }: { tab: Tab; cur: Tab; cls?: string; children: React.ReactNode }) {
-  return (
-    <button className={'nav-btn ' + cls + (cur === tab ? ' on' : '')} onClick={() => openTab(tab)}>
-      {children}
-    </button>
   );
 }

@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import fs from 'node:fs';
 
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const BUILD_TIME = new Date().toISOString();
+
 /*
   모든 파일이 폴더 없이 한 곳에 있어도 동작하도록,
   성경 본문(nkrv.json)과 아이콘(png)을 빌드 결과(dist)의 data/, icons/ 폴더로 복사합니다.
@@ -34,12 +37,18 @@ function flatAssets(): Plugin {
       for (const [out, src] of Object.entries(ASSETS)) {
         this.emitFile({ type: 'asset', fileName: out, source: fs.readFileSync(src) });
       }
+      // 설정 화면에서 "최신 버전"을 확인할 때 쓰는 파일
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: pkg.version, buildTime: BUILD_TIME }) });
     },
   };
 }
 
 export default defineConfig({
   publicDir: false,
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   server: { host: '0.0.0.0', allowedHosts: true },
   preview: { host: '0.0.0.0', allowedHosts: true },
   plugins: [
@@ -67,6 +76,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,json}'],
+        globIgnores: ['version.json'],
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         navigateFallback: '/index.html'
       }

@@ -1,13 +1,25 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ToolIcons from './ToolIcons';
+import { APP_VERSION, applyUpdate, BUILD_TIME, CHANGELOG, fetchLatest, formatBuildTime } from './pwa';
 import { DEFAULT_SETTINGS, exportBackup, importBackup, setSettings, Settings, useStore } from './store';
 import { toast } from './utils';
 
 const PRESETS: [string, number][] = [['작게', 16], ['보통', 19], ['크게', 23], ['아주 크게', 28]];
 
-export default function SettingsView() {
+export default function SettingsView({ active }: { active: boolean }) {
   const s = useStore(st => st.settings);
   const bmCount = useStore(st => st.bookmarks.length);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [latest, setLatest] = useState<{ version: string; buildTime: string } | null | 'checking' | 'offline'>(null);
+  const [updating, setUpdating] = useState(false);
+
+  const check = async () => {
+    setLatest('checking');
+    const l = await fetchLatest();
+    setLatest(l ?? 'offline');
+  };
+  useEffect(() => { if (active) check(); }, [active]);
+  const hasNew = latest && typeof latest === 'object' && latest.buildTime !== BUILD_TIME;
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setSettings({ [k]: v } as Partial<Settings>);
 
@@ -43,8 +55,8 @@ export default function SettingsView() {
   };
 
   return (
-    <div className="view">
-      <header className="vhead"><h1>설정</h1></header>
+    <div className={'view' + (active ? '' : ' inactive')}>
+      <header className="vhead"><h1>설정</h1><ToolIcons /></header>
       <div className="view-body settings">
 
         <section>
@@ -63,12 +75,37 @@ export default function SettingsView() {
           <h3>줄 간격</h3>
           <div className="slider-row">
             <span>좁게</span>
-            <input type="range" min={1.3} max={2.4} step={0.05} value={s.lineHeight} onChange={e => set('lineHeight', +e.target.value)} />
+            <input type="range" min={1.0} max={2.4} step={0.05} value={s.lineHeight} onChange={e => set('lineHeight', +e.target.value)} />
             <span>넓게</span>
             <span className="val">{s.lineHeight.toFixed(2)}</span>
           </div>
-          <div className="preview" style={{ fontSize: s.fontSize, lineHeight: s.lineHeight }}>
-            <span className="vnum">16</span>하나님이 세상을 이처럼 사랑하사 독생자를 주셨으니 이는 그를 믿는 자마다 멸망하지 않고 영생을 얻게 하려 하심이라
+          <h3>절 간격</h3>
+          <div className="slider-row">
+            <span>좁게</span>
+            <input type="range" min={0} max={30} step={1} value={s.verseGap} onChange={e => set('verseGap', +e.target.value)} />
+            <span>넓게</span>
+            <span className="val">{s.verseGap}</span>
+          </div>
+          <h3>좌우 여백</h3>
+          <div className="slider-row">
+            <span>꽉 차게</span>
+            <input type="range" min={0} max={30} step={1} value={s.sideMargin} onChange={e => set('sideMargin', +e.target.value)} />
+            <span>넓게</span>
+            <span className="val">{s.sideMargin}</span>
+          </div>
+          <h3>절 번호 위치</h3>
+          <div className="seg">
+            <button className={s.verseNumStyle === 'inline' ? 'on' : ''} onClick={() => set('verseNumStyle', 'inline')}>글 앞에 (꽉 차게)</button>
+            <button className={s.verseNumStyle === 'hang' ? 'on' : ''} onClick={() => set('verseNumStyle', 'hang')}>왼쪽 칸에</button>
+          </div>
+          <h3>줄 바꿈</h3>
+          <div className="seg">
+            <button className={s.wrapMode === 'char' ? 'on' : ''} onClick={() => set('wrapMode', 'char')}>글자 단위 (꽉 차게)</button>
+            <button className={s.wrapMode === 'word' ? 'on' : ''} onClick={() => set('wrapMode', 'word')}>낱말 단위</button>
+          </div>
+          <div className="preview verses">
+            <p className="verse"><span className="vnum">16</span>하나님이 세상을 이처럼 사랑하사 독생자를 주셨으니 이는 그를 믿는 자마다 멸망하지 않고 영생을 얻게 하려 하심이라</p>
+            <p className="verse"><span className="vnum">17</span>하나님이 그 아들을 세상에 보내신 것은 세상을 심판하려 하심이 아니요 그로 말미암아 세상이 구원을 받게 하려 하심이라</p>
           </div>
         </section>
 
@@ -92,6 +129,7 @@ export default function SettingsView() {
           <h3>읽기</h3>
           <Toggle label="읽는 동안 화면 꺼짐 방지" value={s.keepAwake} onChange={v => set('keepAwake', v)} />
           <Toggle label="좌우로 밀어서 장 넘기기" value={s.swipe} onChange={v => set('swipe', v)} />
+          <Toggle label="문장으로 찾기에 AI 설명 (인터넷 필요)" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
           <div className="row">
             <span>페이지 개수</span>
             <div className="seg small">
@@ -142,7 +180,34 @@ export default function SettingsView() {
           <div className="btn-row">
             <button onClick={() => { if (confirm('보기 설정을 기본값으로 되돌릴까요? (북마크는 그대로입니다)')) setSettings(DEFAULT_SETTINGS); }}>설정 초기화</button>
           </div>
-          <p className="desc small">SK-성경 v1.2 · 성경전서 개역개정판 (개인 사용)</p>
+        </section>
+
+        <section>
+          <h3>버전</h3>
+          <div className="ver-box">
+            <div className="ver-now">SK-성경 <b>v{APP_VERSION}</b></div>
+            <div className="muted">업데이트: {formatBuildTime(BUILD_TIME)}</div>
+            <div className="ver-state">
+              {latest === 'checking' && <span className="muted">최신 버전 확인 중…</span>}
+              {latest === 'offline' && <span className="muted">인터넷에 연결되면 최신 버전을 확인합니다</span>}
+              {latest && typeof latest === 'object' && !hasNew && <span className="ok">✅ 최신 버전입니다</span>}
+              {hasNew && typeof latest === 'object' && (
+                <span className="new">🆕 새 버전 v{latest.version} ({formatBuildTime(latest.buildTime)})</span>
+              )}
+            </div>
+            <div className="btn-row">
+              {hasNew
+                ? <button className="primary" disabled={updating} onClick={() => { setUpdating(true); applyUpdate(); }}>{updating ? '업데이트 중…' : '지금 업데이트'}</button>
+                : <button onClick={check}>최신 버전 확인</button>}
+            </div>
+          </div>
+          <details className="changelog">
+            <summary>업데이트 내역</summary>
+            {CHANGELOG.map(([v, items]) => (
+              <div key={v}><b>v{v}</b><ul>{items.map(t => <li key={t}>{t}</li>)}</ul></div>
+            ))}
+          </details>
+          <p className="desc small">성경전서 개역개정판 (개인 사용)</p>
         </section>
       </div>
     </div>

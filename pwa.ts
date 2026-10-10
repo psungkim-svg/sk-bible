@@ -1,0 +1,62 @@
+/* 앱 자동 업데이트 + 버전 정보 */
+import { registerSW } from 'virtual:pwa-register';
+
+declare const __APP_VERSION__: string;
+declare const __BUILD_TIME__: string;
+
+export const APP_VERSION = __APP_VERSION__;
+export const BUILD_TIME = __BUILD_TIME__; // ISO 시각
+
+let reg: ServiceWorkerRegistration | undefined;
+
+export function startPwa() {
+  registerSW({
+    immediate: true,
+    onRegisteredSW(_url, r) {
+      reg = r;
+      // 앱을 다시 볼 때마다 새 버전이 있는지 확인 → 있으면 자동으로 바뀝니다
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && navigator.onLine) r?.update().catch(() => {});
+      });
+      setInterval(() => { if (navigator.onLine) r?.update().catch(() => {}); }, 60 * 60 * 1000);
+    },
+  });
+}
+
+/** 서버에 올라가 있는 최신 버전 */
+export async function fetchLatest(): Promise<{ version: string; buildTime: string } | null> {
+  try {
+    const res = await fetch('/version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 새 버전 받기 */
+export async function applyUpdate() {
+  try { await reg?.update(); } catch { /* */ }
+  // 자동으로 새로 고쳐지지 않으면 직접 새로 고침
+  setTimeout(() => location.reload(), 2500);
+}
+
+export function formatBuildTime(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+export const CHANGELOG: [string, string[]][] = [
+  ['1.3.0', [
+    '말씀이 화면 좌우에 꽉 차게 (좌우 여백 · 절 번호 위치 설정)',
+    '좌우로 밀 때 다음 장이 손가락을 따라 부드럽게 넘어옴',
+    '아래 페이지 버튼에 "창세기 2장 10절"처럼 읽는 곳 표시',
+    '줄 간격 1.0부터 · 절 간격 조절',
+    '문장으로 찾기: AI가 구절을 찾아 설명 (인터넷 필요)',
+    '뒤로 버튼 → 이전 화면으로 (처음 화면에서는 한 번 더 누르면 종료)',
+    '설정에 현재 버전 · 최신 버전 표시, 자동 업데이트',
+  ]],
+  ['1.2.0', ['문장으로 찾기 (인터넷 없이)', '로그인 없이 폰마다 따로 저장']],
+];

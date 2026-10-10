@@ -33,6 +33,11 @@ export interface Settings {
   copyBookStyle: 'full' | 'short';
   copyRefPosition: 'top' | 'bottom';
   copyVerseNumbers: 'auto' | 'always' | 'never';
+  verseGap: number;           // 절 간격 (px)
+  sideMargin: number;         // 좌우 여백 (px)
+  verseNumStyle: 'inline' | 'hang'; // 절 번호: 글 안에 / 왼쪽 칸
+  aiSearch: boolean;          // 문장 찾기에 AI 설명 사용
+  wrapMode: 'char' | 'word';  // 줄바꿈: 글자 단위(꽉 차게) / 낱말 단위
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -67,6 +72,11 @@ export const DEFAULT_SETTINGS: Settings = {
   copyBookStyle: 'full',
   copyRefPosition: 'top',
   copyVerseNumbers: 'auto',
+  verseGap: 6,
+  sideMargin: 4,
+  verseNumStyle: 'inline',
+  aiSearch: true,
+  wrapMode: 'char',
 };
 
 const KEY = 'sk-bible-v1';
@@ -128,6 +138,7 @@ export function updatePage(i: number, patch: Partial<PageState>) {
 /** 페이지 i에서 새 위치로 이동 (이전 위치는 history에 저장) */
 export function goTo(i: number, loc: { book: number; chapter: number; verse?: number }, opts: { record?: boolean; flash?: boolean } = {}) {
   const { record = true, flash = true } = opts;
+  if (record) pushUndo({ t: 'loc', page: i });
   setState(s => ({
     pages: s.pages.map((p, j) => {
       if (j !== i) return p;
@@ -147,8 +158,35 @@ export function goBack(i: number) {
   updatePage(i, { ...prev, history: p.history.slice(0, -1), flash: undefined, nav: (p.nav ?? 0) + 1 });
 }
 
-export function openTab(tab: Tab) {
+/* ---------- 뒤로 버튼용 '이전 화면' 기록 (앱을 다시 열면 비워짐) ---------- */
+type Undo = { t: 'tab'; tab: Tab } | { t: 'loc'; page: number };
+const undo: Undo[] = [];
+function pushUndo(u: Undo) {
+  undo.push(u);
+  if (undo.length > 60) undo.shift();
+}
+
+export function openTab(tab: Tab, record = true) {
+  if (tab === state.tab) return;
+  if (record) pushUndo({ t: 'tab', tab: state.tab });
   setState(s => ({ tab, lastPage: typeof tab === 'number' ? tab : s.lastPage }));
+}
+
+/** 이전 화면으로. 돌아갈 곳이 없으면 false */
+export function navBack(): boolean {
+  while (undo.length) {
+    const u = undo.pop()!;
+    if (u.t === 'tab') {
+      if (u.tab === state.tab || (typeof u.tab === 'number' && u.tab >= state.settings.pageCount)) continue;
+      openTab(u.tab, false);
+      return true;
+    }
+    if (u.page >= state.settings.pageCount || !state.pages[u.page].history.length) continue;
+    goBack(u.page);
+    openTab(u.page as Tab, false);
+    return true;
+  }
+  return false;
 }
 
 export function addBookmark(book: number, chapter: number, verses: number[]) {

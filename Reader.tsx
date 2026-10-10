@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { BibleData, buildCopyText, refLabel } from './bible';
 import { BOOKS } from './books';
 import {
@@ -6,6 +7,7 @@ import {
 } from './store';
 import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
+import ToolIcons from './ToolIcons';
 
 interface Props { index: number; data: BibleData; active: boolean; }
 
@@ -81,27 +83,119 @@ export default function Reader({ index, data, active }: Props) {
   };
 
   /* ---------- 장 이동 ---------- */
+  const neighbor = (dir: 1 | -1, b0 = book, c0 = chapter): { book: number; chapter: number } | null => {
+    let b = b0, c = c0 + dir;
+    if (c < 1) { if (b === 0) return null; b -= 1; c = data[b].length; }
+    else if (c > data[b].length) { if (b === 65) return null; b += 1; c = 1; }
+    return { book: b, chapter: c };
+  };
   const step = (dir: 1 | -1) => {
-    let b = book, c = chapter + dir;
-    if (c < 1) { if (b === 0) return; b -= 1; c = data[b].length; }
-    else if (c > data[b].length) { if (b === 65) return; b += 1; c = 1; }
-    goTo(index, { book: b, chapter: c, verse: 1 }, { record: false, flash: false });
+    const n = neighbor(dir);
+    if (n) goTo(index, { ...n, verse: 1 }, { record: false, flash: false });
   };
 
-  /* ---------- 스와이프 ---------- */
-  const touch = useRef<{ x: number; y: number; t: number } | null>(null);
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    touch.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  /* ---------- 좌우로 밀어서 장 넘기기 (손가락을 따라 부드럽게) ---------- */
+  const pagerRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const [ghost, setGhost] = useState<{ dir: 1 | -1; book: number; chapter: number } | null>(null);
+  const animating = useRef(false);
+  const swipedAt = useRef(0);
+  const live = useRef({ book, chapter, swipe: settings.swipe, hasSel: false, neighbor, step });
+  live.current = { book, chapter, swipe: settings.swipe, hasSel: selected.length > 0, neighbor, step };
+
+  const setX = (x: number, dir: number, withGhost: boolean, transition = '') => {
+    const sc = scrollRef.current, gh = ghostRef.current, w = pagerRef.current?.clientWidth ?? 360;
+    if (sc) { sc.style.transition = transition; sc.style.transform = x ? `translateX(${x}px)` : ''; }
+    if (gh && withGhost) { gh.style.transition = transition; gh.style.transform = `translateX(${x + dir * w}px)`; }
   };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const s = touch.current;
-    touch.current = null;
-    if (!s || !settings.swipe || selected.length) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - s.x, dy = t.clientY - s.y;
-    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 2 && Date.now() - s.t < 700) step(dx < 0 ? 1 : -1);
+  const DUR = 240;
+  const EASE = `transform ${DUR}ms cubic-bezier(.22,.8,.3,1)`;
+
+  const commit = (dir: 1 | -1) => {
+    const w = pagerRef.current?.clientWidth ?? 360;
+    animating.current = true;
+    setX(-dir * w, dir, true, EASE);
+    window.setTimeout(() => {
+      flushSync(() => { live.current.step(dir); setGhost(null); });
+      setX(0, dir, false, 'none');
+      animating.current = false;
+    }, DUR + 10);
   };
+  const cancel = (dir: number) => {
+    animating.current = true;
+    setX(0, dir, true, EASE);
+    window.setTimeout(() => { setGhost(null); setX(0, dir, false, 'none'); animating.current = false; }, DUR + 10);
+  };
+  /** 버튼으로 장을 넘길 때도 같은 효과 */
+  const animStep = (dir: 1 | -1) => {
+    if (animating.current) return;
+    const n = neighbor(dir);
+    if (!n) return;
+    if (!settings.swipe) { step(dir); return; }
+    flushSync(() => setGhost({ dir, ...n }));
+    setX(0, dir, true, 'none');
+    void ghostRef.current?.offsetWidth; // 위치 적용 후 움직이기
+    commit(dir);
+  };
+
+  useEffect(() => {
+    const el = pagerRef.current;
+    if (!el) return;
+    let sx = 0, sy = 0, dx = 0, curDir = 0, lastX = 0, lastT = 0, vel = 0;
+    let lock: 'h' | 'v' | null = null;
+    let hasNb = false;
+    const onStart = (e: TouchEvent) => {
+      if (animating.current || e.touches.length > 1 || !live.current.swipe || live.current.hasSel) { lock = 'v'; return; }
+      const t = e.touches[0];
+      sx = lastX = t.clientX; sy = t.clientY; lastT = e.timeStamp;
+      dx = 0; curDir = 0; vel = 0; lock = null;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (lock === 'v') return;
+      const t = e.touches[0];
+      const mx = t.clientX - sx, my = t.clientY - sy;
+      if (!lock) {
+        if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+        if (Math.abs(my) * 1.1 >= Math.abs(mx)) { lock = 'v'; return; }
+        lock = 'h';
+        sx = t.clientX - Math.sign(mx) * 2;
+      }
+      e.preventDefault();
+      dx = t.clientX - sx;
+      const dir: 1 | -1 = dx < 0 ? 1 : -1;
+      if (dir !== curDir) {
+        curDir = dir;
+        const nb = live.current.neighbor(dir);
+        hasNb = !!nb;
+        flushSync(() => setGhost(nb ? { dir, ...nb } : null));
+      }
+      const dt = e.timeStamp - lastT;
+      if (dt > 0) vel = 0.7 * ((t.clientX - lastX) / dt) + 0.3 * vel;
+      lastX = t.clientX; lastT = e.timeStamp;
+      setX(hasNb ? dx : dx * 0.25, dir, hasNb, 'none');
+    };
+    const onEnd = () => {
+      if (lock !== 'h') { lock = null; return; }
+      lock = null;
+      swipedAt.current = Date.now();
+      const w = el.clientWidth;
+      const dir: 1 | -1 = dx < 0 ? 1 : -1;
+      const fling = Math.abs(vel) > 0.35 && Math.abs(dx) > 30 && Math.sign(vel) === Math.sign(dx);
+      if (hasNb && (Math.abs(dx) > w * 0.25 || fling)) commit(dir);
+      else cancel(dir);
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------- 절 선택 (탭 = 선택/해제, 길게 누르기 = 범위 선택) ---------- */
   const lp = useRef<{ timer?: number; fired: boolean; x: number; y: number }>({ fired: false, x: 0, y: 0 });
@@ -124,6 +218,7 @@ export default function Reader({ index, data, active }: Props) {
 
   const toggle = (v: number) => {
     if (lp.current.fired) { lp.current.fired = false; return; }
+    if (Date.now() - swipedAt.current < 350) return; // 밀어 넘기는 중 실수로 눌린 것
     setSelected(sel => (sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]));
     setAnchor(v);
   };
@@ -173,46 +268,35 @@ export default function Reader({ index, data, active }: Props) {
           <svg viewBox="0 0 24 24" width="22" height="22"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
         <button className="title-btn" onClick={() => { clearSel(); setPickerOpen(true); }}>
-          <span className="pg-badge">{index + 1}</span>
-          {BOOKS[book].name} {chapter}{chapUnit}
+          <span className="title-txt">{BOOKS[book].name} {chapter}{chapUnit}</span>
           <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
         </button>
-        <button className="icon-btn" onClick={() => step(-1)} aria-label="이전 장">
-          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
-        </button>
-        <button className="icon-btn" onClick={() => step(1)} aria-label="다음 장">
-          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M10 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
-        </button>
+        <ToolIcons />
       </header>
 
-      <div className="scroll" ref={scrollRef} onScroll={onScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <h2 className="chap-title">{BOOKS[book].name} {chapter}{chapUnit}</h2>
-        <div className="verses">
-          {verses.map((t, i) => {
-            const v = i + 1;
-            const hl = highlights[`${book}:${chapter}:${v}`];
-            const m = t.match(/^(\[[^\]]+\])\s*(.*)$/); // 시편 표제 등
-            return (
-              <p
-                key={v}
-                data-v={v}
-                className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
-                onClick={() => toggle(v)}
-                onTouchStart={e => onVerseTouchStart(v, e)}
-                onTouchMove={onVerseTouchMove}
-                onTouchEnd={onVerseTouchEnd}
-                onContextMenu={e => { e.preventDefault(); selectRange(v); }}
-              >
-                <span className="vnum">{v}{bookmarked.has(v) && <span className="bm-dot" />}</span>
-                {m ? <><span className="vtitle">{m[1]}</span> {m[2]}</> : t}
-              </p>
-            );
-          })}
+      <div className="pager" ref={pagerRef}>
+        <div className="scroll" ref={scrollRef} onScroll={onScroll}>
+          <ChapterBody
+            data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
+            selected={selected} flashV={flashV}
+            handlers={{
+              onClick: toggle,
+              onTouchStart: onVerseTouchStart,
+              onTouchMove: onVerseTouchMove,
+              onTouchEnd: onVerseTouchEnd,
+              onContext: selectRange,
+            }}
+          />
+          <div className="chap-nav">
+            <button onClick={() => animStep(-1)} disabled={book === 0 && chapter === 1}>‹ 이전 {chapUnit}</button>
+            <button onClick={() => animStep(1)} disabled={book === 65 && chapter === data[65].length}>다음 {chapUnit} ›</button>
+          </div>
         </div>
-        <div className="chap-nav">
-          <button onClick={() => step(-1)} disabled={book === 0 && chapter === 1}>‹ 이전 {chapUnit}</button>
-          <button onClick={() => step(1)} disabled={book === 65 && chapter === data[65].length}>다음 {chapUnit} ›</button>
-        </div>
+        {ghost && (
+          <div className="scroll ghost" ref={ghostRef} style={{ transform: `translateX(${ghost.dir * 100}%)` }} aria-hidden>
+            <ChapterBody data={data} book={ghost.book} chapter={ghost.chapter} highlights={highlights} limit={60} />
+          </div>
+        )}
       </div>
 
       {selected.length > 0 && (
@@ -250,6 +334,57 @@ export default function Reader({ index, data, active }: Props) {
     </div>
   );
 }
+
+interface BodyProps {
+  data: BibleData;
+  book: number;
+  chapter: number;
+  highlights: Record<string, HlColor>;
+  bookmarked?: Set<number>;
+  selected?: number[];
+  flashV?: number;
+  limit?: number;
+  handlers?: {
+    onClick: (v: number) => void;
+    onTouchStart: (v: number, e: React.TouchEvent) => void;
+    onTouchMove: (e: React.TouchEvent) => void;
+    onTouchEnd: () => void;
+    onContext: (v: number) => void;
+  };
+}
+
+/** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, handlers: h }: BodyProps) {
+  const all = data[book]?.[chapter - 1] ?? [];
+  const verses = limit ? all.slice(0, limit) : all;
+  return (
+    <>
+      <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
+      <div className="verses">
+        {verses.map((t, i) => {
+          const v = i + 1;
+          const hl = highlights[`${book}:${chapter}:${v}`];
+          const m = t.match(/^(\[[^\]]+\])\s*(.*)$/); // 시편 표제 등
+          return (
+            <p
+              key={v}
+              data-v={v}
+              className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
+              onClick={h && (() => h.onClick(v))}
+              onTouchStart={h && (e => h.onTouchStart(v, e))}
+              onTouchMove={h?.onTouchMove}
+              onTouchEnd={h?.onTouchEnd}
+              onContextMenu={h && (e => { e.preventDefault(); h.onContext(v); })}
+            >
+              <span className="vnum">{v}{bookmarked?.has(v) && <span className="bm-dot" />}</span>
+              {m ? <><span className="vtitle">{m[1]}</span> {m[2]}</> : t}
+            </p>
+          );
+        })}
+      </div>
+    </>
+  );
+});
 
 function Ico({ d }: { d: string }) {
   return <svg viewBox="0 0 24 24" width="22" height="22"><path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;

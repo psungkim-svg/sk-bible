@@ -37,19 +37,53 @@ export async function shareText(text: string): Promise<'shared' | 'copied' | 'fa
   return (await copyText(text)) ? 'copied' : 'failed';
 }
 
-/* ---------- 안드로이드 뒤로가기 버튼으로 창 닫기 ---------- */
+/* ---------- 안드로이드 뒤로가기 버튼 ----------
+   앱이 꺼지지 않도록 "보초" 기록을 하나 쌓아 두고, 뒤로 버튼을 누르면
+   ① 열린 창(책 선택, 절 선택 등) 닫기 → ② 이전 화면으로 → ③ 처음 화면이면 "한 번 더 누르면 종료" */
+const overlayStack: { close: () => void }[] = [];
+let rootBack: () => boolean = () => false;
+let guard = false;
+let exitArmed = false;
+let exitTimer: number | undefined;
+
+function pushGuard() {
+  if (guard) return;
+  try { history.pushState({ skGuard: Date.now() }, ''); guard = true; } catch { /* */ }
+}
+
+export function setRootBack(fn: () => boolean) { rootBack = fn; }
+
+let backInit = false;
+export function initBackHandling() {
+  if (backInit) return;
+  backInit = true;
+  try { history.replaceState({ skBase: 1 }, ''); } catch { /* */ }
+  pushGuard();
+  // 크롬은 사용자가 화면을 만진 뒤에 쌓은 기록만 인정하므로, 터치할 때마다 보초가 있는지 확인
+  window.addEventListener('pointerdown', () => { if (!exitArmed) pushGuard(); }, { capture: true });
+  window.addEventListener('popstate', () => {
+    guard = false;
+    if (exitArmed) { clearTimeout(exitTimer); exitArmed = false; history.back(); return; }
+    const top = overlayStack[overlayStack.length - 1];
+    if (top) { top.close(); pushGuard(); return; }
+    if (rootBack()) { pushGuard(); return; }
+    exitArmed = true;
+    toast('뒤로 버튼을 한 번 더 누르면 종료됩니다');
+    exitTimer = window.setTimeout(() => { exitArmed = false; pushGuard(); }, 2000);
+  });
+}
+
+/** open 인 동안 뒤로 버튼을 누르면 close 를 부릅니다 */
 export function useBackClose(open: boolean, close: () => void) {
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
     if (!open) return;
-    let popped = false;
-    history.pushState({ overlay: Date.now() }, '');
-    const onPop = () => { popped = true; closeRef.current(); };
-    window.addEventListener('popstate', onPop);
+    const entry = { close: () => closeRef.current() };
+    overlayStack.push(entry);
     return () => {
-      window.removeEventListener('popstate', onPop);
-      if (!popped) history.back();
+      const i = overlayStack.indexOf(entry);
+      if (i >= 0) overlayStack.splice(i, 1);
     };
   }, [open]);
 }
