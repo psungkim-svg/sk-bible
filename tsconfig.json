@@ -10,5 +10,6 @@
     "skipLibCheck": true,
     "types": ["vite/client", "vite-plugin-pwa/client"]
   },
-  "include": ["src"]
+  "include": ["*.ts", "*.tsx"],
+  "exclude": ["vite.config.ts"]
 }

@@ -1,8 +1,8 @@
 import { Fragment, useMemo, useState } from 'react';
-import { BibleData, parseRef, refLabel, SearchHit, SearchScope, searchWords } from '../bible';
-import { BOOKS } from '../books';
-import { matchSegments, searchSentence, SentenceHit } from '../sentenceSearch';
-import { addRecentSearch, goTo, openTab, SearchMode, setState, useStore } from '../store';
+import { BibleData, parseRef, refLabel, SearchHit, SearchScope, searchWords } from './bible';
+import { BOOKS } from './books';
+import { matchSegments, searchSentence, SentenceHit } from './sentenceSearch';
+import { addRecentSearch, goTo, openTab, SearchMode, setState, useStore } from './store';
 import { PageChooser } from './BookmarksView';
 
 const PAGE = 100;

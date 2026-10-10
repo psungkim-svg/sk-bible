@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { BibleData, buildCopyText, refLabel } from '../bible';
-import { goTo, openTab, removeBookmark, updateBookmark, useStore } from '../store';
-import { copyText, formatDate, toast } from '../utils';
+import { BibleData, buildCopyText, refLabel } from './bible';
+import { goTo, openTab, removeBookmark, updateBookmark, useStore } from './store';
+import { copyText, formatDate, toast } from './utils';
 
 export default function BookmarksView({ data }: { data: BibleData }) {
   const bookmarks = useStore(s => s.bookmarks);

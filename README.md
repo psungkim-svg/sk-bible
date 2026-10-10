@@ -27,19 +27,8 @@
 
 1. 작업 공간의 **`SK-성경-앱.zip`** 파일을 컴퓨터로 내려받습니다.
 2. 파일을 **마우스 오른쪽 버튼 → "압축 풀기"(또는 "모두 압축 풀기")** 합니다.
-3. **`sk-bible`** 폴더가 생깁니다. 안에 아래 파일들이 있으면 성공입니다.
-
-```
-sk-bible/
- ├─ public/         ← 성경 본문(개역개정)과 아이콘
- ├─ src/            ← 앱 프로그램
- ├─ index.html
- ├─ package.json
- ├─ package-lock.json
- ├─ tsconfig.json
- ├─ vite.config.ts
- └─ README.md       ← 이 가이드
-```
+3. 폴더 안에 **파일 26개**가 폴더 없이 한 곳에 들어 있습니다. (`App.tsx`, `index.html`, `nkrv.json`, `package.json`, `wrangler.jsonc` …)
+   - 이 앱은 일부러 **폴더 없이** 만들었습니다. 그래서 파일을 한 번에 골라 올리기만 하면 됩니다.
 
 ---
 
@@ -62,16 +51,14 @@ sk-bible/
 4. 맨 아래 초록색 **Create repository**를 누릅니다.
 
 ### 2-2. 파일 올리기
-1. 저장소가 만들어지면 "Quick setup…" 화면이 나옵니다.
-   그 안의 파란 글씨 **"uploading an existing file"**을 누릅니다.
-2. "Drag files here…"라는 큰 상자가 나옵니다.
-3. 컴퓨터에서 **`sk-bible` 폴더를 열고** 안의 내용물을 **전부 선택**합니다. (Ctrl + A)
-4. 선택한 것을 브라우저의 상자 위로 **끌어다 놓습니다**.
-   - ⚠️ `sk-bible` 폴더 자체를 끌어다 놓지 말고, **폴더 안의 내용물**을 끌어다 놓아야 합니다.
-   - 올라가는 데 10~30초쯤 걸립니다.
-5. 아래로 내려서 **Commit changes** 초록 버튼을 누릅니다.
-6. 저장소 첫 화면에 `public`, `src`, `index.html`, `package.json` 등이 **바로** 보이면 성공입니다. ✅
-   - ❌ `sk-bible` 폴더 하나만 보인다면 폴더째 올린 것입니다. 저장소를 지우고(**Settings** → 맨 아래 **Delete this repository**) 2-1부터 다시 하세요.
+1. 저장소 화면에서 **Add file**(또는 **＋**) → **Upload files**를 누릅니다.
+   (빈 저장소라면 "Quick setup…" 화면의 파란 글씨 **"uploading an existing file"**)
+2. 가운데 상자의 **choose your files**를 누릅니다.
+3. 파일 선택 창에서 압축을 푼 폴더로 들어가 **Ctrl + A**(전체 선택) → **열기**를 누릅니다.
+   - 끌어다 놓아도 됩니다.
+4. 파일 26개가 목록에 올라갈 때까지 기다립니다. (10~30초)
+5. 아래 초록색 **Commit changes**를 누릅니다.
+6. 저장소 첫 화면에 `App.tsx`, `index.html`, `nkrv.json`, `package.json`, `wrangler.jsonc` 등이 보이면 성공입니다. ✅
 
 ---
 
@@ -105,6 +92,12 @@ sk-bible/
     - 이름이 이미 쓰이고 있으면 `https://sk-bible-abc.pages.dev`처럼 뒤에 글자가 붙습니다.
     - 📝 **이 주소를 꼭 메모해 두세요!**
 12. 컴퓨터에서 그 주소를 열어 창세기 1장이 나오면 성공입니다. ✅
+
+### 💡 Pages가 아니라 Workers로 만들어졌다면?
+빌드 설정에 **Deploy command: `npx wrangler deploy`**가 보이면 Workers로 만들어진 것입니다. 이 경우에도 괜찮습니다.
+- 저장소에 **`wrangler.jsonc`** 파일이 있으면 정상적으로 배포됩니다. (zip에 포함되어 있습니다)
+- 주소는 `https://sk-bible.<내계정이름>.workers.dev` 형태입니다.
+  **sk-bible → Overview** 화면 오른쪽의 **Domains & Routes**(또는 **Visit** 버튼)에서 확인할 수 있습니다.
 
 ---
 
@@ -229,9 +222,10 @@ npm run dev       # 개발 서버
 npm run build     # dist/ 생성
 ```
 - React 18 + TypeScript + Vite + vite-plugin-pwa (오프라인 캐시)
-- 성경 데이터: `public/data/nkrv.json` — `[책][장][절]` 배열
+- 구조: 모든 파일이 한 폴더에 있음 (빌드 때 `nkrv.json`→`dist/data/`, 아이콘→`dist/icons/`로 복사, `vite.config.ts` 참고)
+- 성경 데이터: `nkrv.json` — `[책][장][절]` 배열
 - 폰 저장: `localStorage` (`sk-bible-v1`)
-- 문장으로 찾기: `src/sentenceSearch.ts` — 음절 2-gram 역색인 + BM25 (오프라인)
+- 문장으로 찾기: `sentenceSearch.ts` — 음절 2-gram 역색인 + BM25 (오프라인)
 - 다음 단계 아이디어: **뜻으로 찾기**(Cloudflare Workers AI 임베딩, 인터넷 필요)
 
 성경전서 개역개정판 © 대한성서공회 — 개인 사용 목적

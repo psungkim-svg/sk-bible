@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { BibleData, parseRef, Ref, refLabel } from '../bible';
-import { BOOKS } from '../books';
-import { useBackClose } from '../utils';
+import { BibleData, parseRef, Ref, refLabel } from './bible';
+import { BOOKS } from './books';
+import { useBackClose } from './utils';
 
 interface Props {
   data: BibleData;

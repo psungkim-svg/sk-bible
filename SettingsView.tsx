@@ -1,6 +1,6 @@
 import { useRef } from 'react';
-import { DEFAULT_SETTINGS, exportBackup, importBackup, setSettings, Settings, useStore } from '../store';
-import { toast } from '../utils';
+import { DEFAULT_SETTINGS, exportBackup, importBackup, setSettings, Settings, useStore } from './store';
+import { toast } from './utils';
 
 const PRESETS: [string, number][] = [['작게', 16], ['보통', 19], ['크게', 23], ['아주 크게', 28]];
 

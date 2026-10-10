@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { BibleData, loadBible } from './bible';
 import { BOOKS } from './books';
-import BookmarksView from './components/BookmarksView';
-import Reader from './components/Reader';
-import SearchView from './components/SearchView';
-import SettingsView from './components/SettingsView';
+import BookmarksView from './BookmarksView';
+import Reader from './Reader';
+import SearchView from './SearchView';
+import SettingsView from './SettingsView';
 import { openTab, Tab, useStore } from './store';
 import { registerToast, useWakeLock } from './utils';
 

@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BibleData, buildCopyText, refLabel } from '../bible';
-import { BOOKS } from '../books';
+import { BibleData, buildCopyText, refLabel } from './bible';
+import { BOOKS } from './books';
 import {
   addBookmark, goBack, goTo, HlColor, setHighlight, updatePage, useStore,
-} from '../store';
-import { copyText, shareText, toast, useBackClose } from '../utils';
+} from './store';
+import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 
 interface Props { index: number; data: BibleData; active: boolean; }
