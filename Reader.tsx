@@ -1,14 +1,16 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { BibleData, buildCopyText, refLabel } from './bible';
 import { BOOKS } from './books';
 import {
-  addBookmark, goBack, goTo, HlColor, setHighlight, updatePage, useStore,
+  addBookmark, addMemory, goBack, goTo, HlColor, setHighlight, updatePage, useStore,
 } from './store';
 import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 import ToolIcons from './ToolIcons';
 import OriginalView from './OriginalView';
+import StudyView from './StudyView';
+import { BackgroundCard, BookIntro } from './ChapterInfo';
 import { ensureTopic, getHeads, Head, TopicState, useTopic } from './headings';
 
 interface Props { index: number; data: BibleData; active: boolean; }
@@ -31,6 +33,16 @@ export default function Reader({ index, data, active }: Props) {
   const [hlOpen, setHlOpen] = useState(false);
   const [flashV, setFlashV] = useState<number | undefined>();
   const [origOpen, setOrigOpen] = useState<number[] | null>(null);
+  const [studyOpen, setStudyOpen] = useState<number[] | null>(null);
+  const [bgOpen, setBgOpen] = useState(false);
+  useEffect(() => { setBgOpen(false); }, [book, chapter]);
+  // 장 맨 위: (1장이면) 책 소개 + 장 주제를 누르면 펼쳐지는 배경 카드
+  const topSlot = useMemo<ReactNode>(() => (
+    <>
+      {chapter === 1 && <BookIntro data={data} book={book} compact onGo={(c, v) => goTo(index, { book, chapter: c, verse: v ?? 1 })} />}
+      {bgOpen && <BackgroundCard data={data} book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
+    </>
+  ), [data, book, chapter, bgOpen, index]);
   const topic = useTopic(book, chapter);
   // 장 주제: 처음 여는 장이면 AI에게 요청 (인터넷이 될 때). 소제목은 앱 안에 들어 있음
   useEffect(() => {
@@ -261,6 +273,11 @@ export default function Reader({ index, data, active }: Props) {
     toast(ok ? `북마크 추가: ${refLabel(book, chapter, selected, true)}` : '이미 북마크에 있습니다');
     clearSel();
   };
+  const doMemorize = () => {
+    const ok = addMemory(book, chapter, selected);
+    toast(ok ? `암송 카드에 담았습니다 🧠 (북마크 → 암송)` : '이미 암송 카드에 있습니다');
+    clearSel();
+  };
   const doHighlight = (c: HlColor | null) => {
     setHighlight(book, chapter, selected, c);
     clearSel();
@@ -287,7 +304,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
-            topic={topic} onRetryTopic={() => ensureTopic(data, book, chapter, true)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            topic={topic} onRetryTopic={() => ensureTopic(data, book, chapter, true)} topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -327,10 +344,17 @@ export default function Reader({ index, data, active }: Props) {
               <button onClick={doBookmark}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
               <button onClick={() => setHlOpen(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
               <button onClick={() => { setOrigOpen(sortedSel); clearSel(); }}><span className="orig-ico">א Ω</span>원어설명</button>
+              <button onClick={() => { setStudyOpen(sortedSel); clearSel(); }}><Ico d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />해설</button>
+              <button onClick={doMemorize}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
               <button onClick={doShare}><Ico d="M12 3v13M7 8l5-5 5 5M5 14v7h14v-7" />공유</button>
             </div>
           )}
         </div>
+      )}
+
+      {studyOpen && (
+        <StudyView data={data} book={book} chapter={chapter} verses={studyOpen} page={index}
+          onClose={() => setStudyOpen(null)} onOriginal={() => { const v = studyOpen; setStudyOpen(null); setOrigOpen(v); }} />
       )}
 
       {origOpen && (
@@ -360,6 +384,9 @@ interface BodyProps {
   limit?: number;
   topic?: TopicState;
   onRetryTopic?: () => void;
+  topSlot?: ReactNode;
+  bgOpen?: boolean;
+  onTopicClick?: () => void;
   showHeadings?: boolean;
   showTopic?: boolean;
   handlers?: {
@@ -372,7 +399,7 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, showHeadings, showTopic, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
   const headAt = new Map<number, Head[]>();
@@ -380,11 +407,14 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
-      {showTopic && topic?.status === 'ready' && <div className="chap-topic">{topic.topic}</div>}
+      {showTopic && topic?.status === 'ready' && (onTopicClick
+        ? <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{topic.topic}<span className="topic-more">{bgOpen ? '접기 ▲' : '배경 보기 ▼'}</span></button>
+        : <div className="chap-topic">{topic.topic}</div>)}
       {showTopic && topic?.status === 'loading' && <div className="chap-topic pending">장 주제를 만드는 중…</div>}
       {showTopic && topic?.status === 'fail' && onRetryTopic && (
         <button className="chap-topic fail" onClick={onRetryTopic}>장 주제를 못 만들었어요 ({topic.error}) · 눌러서 다시 시도</button>
       )}
+      {topSlot}
       <div className="verses">
         {verses.map((t, i) => {
           const v = i + 1;

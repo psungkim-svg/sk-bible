@@ -43,6 +43,41 @@ const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니�
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"topic":"장 주제"}`;
 
+const VERSE_PROMPT = `당신은 성경을 깊이 아는 친절한 목회자이자 성경 교사입니다.
+주어진 개역개정 구절을 일반 성도가 잘 이해하도록 한국어로 해설하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"summary":"이 구절의 핵심을 한 문장으로",
+ "context":"앞뒤 문맥: 이 말씀이 어떤 흐름 속에서 누구에게 왜 주어졌는지 2~4문장",
+ "background":"당시 역사·문화·지리 배경 중 이해에 꼭 필요한 것 2~4문장",
+ "meaning":"구절의 뜻을 풀어 설명 3~6문장 (중요한 낱말의 의미, 다른 성경 구절과의 연결 포함)",
+ "apply":["오늘 나의 삶에 주는 적용 1문장","적용 2","적용 3"],
+ "pray":"이 말씀으로 드리는 짧은 기도 한 문장"}
+규칙: 존댓말(~입니다)로 씁니다. 성경 본문에 근거하고, 확실하지 않은 내용은 지어내지 마세요. 특정 교단에 치우친 주장은 피합니다.`;
+
+const LEX_PROMPT = `당신은 한국어 성경(개역개정) 교사입니다.
+주어진 구절에서
+1) 요즘 사람이 이해하기 어려운 낱말(옛말, 한자어, 성경 특유의 말: 예 궁창, 긍휼, 기업, 화목제, 할례, 장자권)을 골라 쉬운 말로 풀고,
+2) 등장하는 인물·지명·민족·절기 등 고유명사를 설명하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"words":[{"w":"낱말 (본문에 나온 그대로)","mean":"쉬운 뜻 (짧게)","note":"필요하면 한두 문장 보충 (없으면 빈 문자열)"}],
+ "names":[{"name":"이름","kind":"인물|지명|민족|절기|기타","desc":"누구/어디인지, 성경에서의 중요성 2~3문장","refs":["관련 대표 구절 (예: 창 12:1)"]}]}
+규칙: 어려운 낱말은 0~8개, 고유명사는 본문에 나온 것만. 존댓말로 쓰고 지어내지 마세요.`;
+
+const TERM_PROMPT = `당신은 성경 사전 편집자입니다. 사용자가 묻는 성경 낱말·인물·지명·개념을 한국어로 쉽게 설명하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"title":"표제어 (개역개정 표기)","kind":"인물|지명|낱말|개념|절기|기타","desc":"뜻과 성경에서의 의미·주요 사건 3~6문장","refs":["대표 구절 2~5개 (예: 창 12:1)"]}
+규칙: 존댓말로 쓰고, 성경에 없는 내용이나 확실하지 않은 내용은 지어내지 마세요.`;
+
+const BG_PROMPT = `당신은 성경 배경을 잘 아는 성경 교사입니다. 주어진 성경 한 장의 배경 카드를 한국어로 만드세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"summary":"이 장의 내용 요약 2~3문장",
+ "era":"시대 (예: 주전 1000년경 다윗 왕 시대 / 주후 30년경 예수님 공생애)",
+ "place":"주요 장소",
+ "people":"주요 등장인물 (쉼표로)",
+ "flow":"앞 장과의 연결과 성경 전체 흐름 속 의미 1~2문장",
+ "key":[{"v":절번호,"why":"이 절이 중요한 이유 한 문장"}]}
+규칙: key 는 1~3개. 존댓말로 쓰고, 확실하지 않은 연대는 '~경' 또는 '전통적으로'라고 쓰세요. 지어내지 마세요.`;
+
 const ORIGINAL_PROMPT = `당신은 성경 원어(히브리어·아람어·헬라어) 전문가이자 친절한 목회자입니다.
 주어진 구절의 원문 단어 분석 자료(STEPBible: 원어, 음역, 영어 직역, 스트롱 번호, 문법, 사전형)를 바탕으로
 성경을 사랑하는 일반 성도가 이해할 수 있게 한국어로 원어 설명과 분석을 쓰세요.
@@ -136,6 +171,44 @@ async function handleAsk(request, env) {
       const topic = clip(out.topic, 120).trim();
       if (!topic) return json({ error: 'AI가 주제를 쓰지 않았습니다' }, 502);
       return json({ topic });
+    }
+    if (body.step === 'verse') {
+      const out = await runLLM(env, VERSE_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}`);
+      return json({
+        summary: clip(out.summary, 400), context: clip(out.context, 1200), background: clip(out.background, 1200),
+        meaning: clip(out.meaning, 2000),
+        apply: (Array.isArray(out.apply) ? out.apply : []).slice(0, 5).map(a => clip(a, 400)).filter(Boolean),
+        pray: clip(out.pray, 400),
+      });
+    }
+    if (body.step === 'lexicon') {
+      const out = await runLLM(env, LEX_PROMPT, `구절: ${q}\n${clip(body.text, 3000)}`);
+      return json({
+        words: (Array.isArray(out.words) ? out.words : []).slice(0, 10)
+          .map(w => ({ w: clip(w?.w, 40), mean: clip(w?.mean, 200), note: clip(w?.note, 400) })).filter(w => w.w && w.mean),
+        names: (Array.isArray(out.names) ? out.names : []).slice(0, 10)
+          .map(n => ({ name: clip(n?.name, 40), kind: clip(n?.kind, 10), desc: clip(n?.desc, 800), refs: (Array.isArray(n?.refs) ? n.refs : []).slice(0, 5).map(r => clip(r, 30)) }))
+          .filter(n => n.name && n.desc),
+      });
+    }
+    if (body.step === 'term') {
+      const out = await runLLM(env, TERM_PROMPT, `물어본 말: ${q}\n(읽던 본문: ${clip(body.where, 40)})`);
+      return json({
+        title: clip(out.title, 40) || q, kind: clip(out.kind, 10), desc: clip(out.desc, 1500),
+        refs: (Array.isArray(out.refs) ? out.refs : []).slice(0, 6).map(r => clip(r, 30)),
+      });
+    }
+    if (body.step === 'background') {
+      const heads = (Array.isArray(body.heads) ? body.heads : []).slice(0, 30)
+        .map(h => `${Number(h?.[0]) || 1}절 ${clip(h?.[1], 80)}`).join(' / ');
+      const out = await runLLM(env, BG_PROMPT,
+        `${clip(body.book, 20)} ${Number(body.chapter) || 1}장\n단락 소제목: ${heads || '(없음)'}\n${clip(body.prev, 400)}\n\n본문:\n${clip(body.text, 8000)}`);
+      return json({
+        summary: clip(out.summary, 800), era: clip(out.era, 200), place: clip(out.place, 200),
+        people: clip(out.people, 300), flow: clip(out.flow, 600),
+        key: (Array.isArray(out.key) ? out.key : []).slice(0, 3).map(k => ({ v: Number(k?.v) || 0, why: clip(k?.why, 300) })),
+      });
     }
     if (body.step === 'original') {
       const words = (Array.isArray(body.words) ? body.words : []).slice(0, 120);

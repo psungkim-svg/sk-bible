@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BibleData, parseRef, Ref, refLabel } from './bible';
 import { BOOKS } from './books';
 import { useBackClose } from './utils';
+import { BookIntro } from './ChapterInfo';
 
 interface Props {
   data: BibleData;
@@ -53,10 +54,7 @@ export default function BookPicker({ data, currentBook, onSelect, onClose }: Pro
           </div>
           <div className="book-grid">
             {BOOKS.map((b, i) => b.testament !== testament ? null : (
-              <button key={i} className={'book-btn ' + b.testament + (i === currentBook ? ' cur' : '')} onClick={() => {
-                if (data[i].length === 1) onSelect({ book: i, chapter: 1 });
-                else setBook(i);
-              }}>
+              <button key={i} className={'book-btn ' + b.testament + (i === currentBook ? ' cur' : '')} onClick={() => setBook(i)}>
                 <span className="abbr">{b.abbr}</span>
                 <span className="full">{b.name}</span>
               </button>
@@ -64,11 +62,16 @@ export default function BookPicker({ data, currentBook, onSelect, onClose }: Pro
           </div>
         </>
       ) : (
-        <div className="chap-grid">
-          {data[book].map((_, i) => (
-            <button key={i} onClick={() => onSelect({ book, chapter: i + 1 })}>{i + 1}</button>
-          ))}
-        </div>
+        <>
+          <div className="picker-intro">
+            <BookIntro data={data} book={book} compact onGo={(c, v) => onSelect({ book, chapter: c, verse: v })} />
+          </div>
+          <div className="chap-grid">
+            {data[book].map((_, i) => (
+              <button key={i} onClick={() => onSelect({ book, chapter: i + 1 })}>{i + 1}</button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

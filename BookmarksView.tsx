@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import MemoryView from './MemoryView';
 import ToolIcons from './ToolIcons';
 import { BibleData, buildCopyText, refLabel } from './bible';
-import { goTo, openTab, removeBookmark, updateBookmark, useStore } from './store';
+import { goTo, openTab, removeBookmark, setBmMode, updateBookmark, useStore } from './store';
 import { copyText, formatDate, toast } from './utils';
 
 export default function BookmarksView({ data, active }: { data: BibleData; active: boolean }) {
   const bookmarks = useStore(s => s.bookmarks);
+  const memCount = useStore(s => s.memory.length);
+  const mode = useStore(s => s.bmMode);
   const lastPage = useStore(s => s.lastPage);
   const pageCount = useStore(s => s.settings.pageCount);
   const settings = useStore(s => s.settings);
@@ -34,8 +37,13 @@ export default function BookmarksView({ data, active }: { data: BibleData; activ
 
   return (
     <div className={'view' + (active ? '' : ' inactive')}>
-      <header className="vhead"><h1>북마크</h1><span className="count">{bookmarks.length}개</span><ToolIcons /></header>
+      <header className="vhead"><h1>{mode === 'mem' ? '암송' : '북마크'}</h1><span className="count">{mode === 'mem' ? memCount : bookmarks.length}개</span><ToolIcons /></header>
       <div className="view-body">
+        <div className="seg bm-tabs">
+          <button className={mode !== 'mem' ? 'on' : ''} onClick={() => setBmMode('bm')}>🔖 북마크 {bookmarks.length}</button>
+          <button className={mode === 'mem' ? 'on' : ''} onClick={() => setBmMode('mem')}>🧠 암송 카드 {memCount}</button>
+        </div>
+        {mode === 'mem' ? <MemoryView data={data} target={target} /> : <>
         <div className="toolbar">
           <div className="seg small">
             <button className={sort === 'recent' ? 'on' : ''} onClick={() => setSort('recent')}>최근순</button>
@@ -86,6 +94,7 @@ export default function BookmarksView({ data, active }: { data: BibleData; activ
             </div>
           );
         })}
+        </>}
       </div>
     </div>
   );

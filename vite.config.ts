@@ -12,6 +12,7 @@ const BUILD_TIME = new Date().toISOString();
 */
 const ASSETS: Record<string, string> = {
   'data/nkrv.json': 'nkrv.json',
+  'data/xref.json': 'xref.json',   // 관련 구절 (OpenBible.info, CC BY)
   'icons/icon-192.png': 'icon-192.png',
   'icons/icon-512.png': 'icon-512.png',
   'icons/maskable-512.png': 'maskable-512.png',

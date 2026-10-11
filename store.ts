@@ -21,6 +21,18 @@ export interface Bookmark {
   createdAt: number;
 }
 
+/** 암송 카드 */
+export interface MemCard {
+  id: string;
+  book: number;
+  chapter: number;
+  verses: number[];
+  level: number;      // 0~5 (외운 정도)
+  due: number;        // 다음 복습 날짜 (ms)
+  reviews: number;    // 연습한 횟수
+  createdAt: number;
+}
+
 export type HlColor = 'yellow' | 'green' | 'blue' | 'pink';
 
 export interface Settings {
@@ -50,10 +62,12 @@ export interface AppState {
   lastPage: number;
   pages: PageState[];
   bookmarks: Bookmark[];
+  memory: MemCard[];
   highlights: Record<string, HlColor>; // key "b:c:v"
   settings: Settings;
   recentSearches: string[];
   searchMode: SearchMode;
+  bmMode: 'bm' | 'mem';   // 북마크 화면: 북마크 / 암송
 }
 
 const DEFAULT_PAGES: PageState[] = [
@@ -93,8 +107,8 @@ const KEY = 'sk-bible-v1';
 
 function load(): AppState {
   const base: AppState = {
-    tab: 0, lastPage: 0, pages: DEFAULT_PAGES, bookmarks: [], highlights: {},
-    settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word',
+    tab: 0, lastPage: 0, pages: DEFAULT_PAGES, bookmarks: [], memory: [], highlights: {},
+    settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word', bmMode: 'bm',
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -218,6 +232,35 @@ export function updateBookmark(id: string, patch: Partial<Bookmark>) {
   setState(s => ({ bookmarks: s.bookmarks.map(b => (b.id === id ? { ...b, ...patch } : b)) }));
 }
 
+export function setBmMode(bmMode: 'bm' | 'mem') { setState(() => ({ bmMode })); }
+
+/* ---------- 암송 카드 ---------- */
+const DAY = 86400000;
+export const MEM_GAPS = [0, 1, 3, 7, 14, 30]; // 외운 정도별 다음 복습까지 (일)
+
+export function addMemory(book: number, chapter: number, verses: number[]) {
+  const v = [...new Set(verses)].sort((a, b) => a - b);
+  if (state.memory.some(m => m.book === book && m.chapter === chapter && m.verses.join() === v.join())) return false;
+  const now = Date.now();
+  const card: MemCard = { id: now.toString(36) + Math.random().toString(36).slice(2, 8), book, chapter, verses: v, level: 0, due: now, reviews: 0, createdAt: now };
+  setState(s => ({ memory: [card, ...s.memory] }));
+  return true;
+}
+export function removeMemory(id: string) {
+  setState(s => ({ memory: s.memory.filter(m => m.id !== id) }));
+}
+/** 연습 결과: ok=외웠어요 → 단계 올림, 아니면 처음부터 */
+export function rateMemory(id: string, ok: boolean) {
+  setState(s => ({
+    memory: s.memory.map(m => {
+      if (m.id !== id) return m;
+      const level = ok ? Math.min(5, m.level + 1) : 0;
+      const start = new Date(); start.setHours(4, 0, 0, 0);
+      return { ...m, level, reviews: m.reviews + 1, due: ok ? start.getTime() + MEM_GAPS[level] * DAY : Date.now() };
+    }),
+  }));
+}
+
 export function setHighlight(book: number, chapter: number, verses: number[], color: HlColor | null) {
   setState(s => {
     const h = { ...s.highlights };
@@ -239,8 +282,8 @@ export function addRecentSearch(q: string) {
 
 /* ---------- 백업 (폰 바꿀 때) ---------- */
 export function exportBackup(): string {
-  const { bookmarks, highlights, settings, pages } = state;
-  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, highlights, settings, pages }, null, 1);
+  const { bookmarks, memory, highlights, settings, pages } = state;
+  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages }, null, 1);
 }
 
 export function importBackup(json: string, mode: 'merge' | 'replace') {
@@ -249,14 +292,17 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
   setState(s => {
     if (mode === 'replace') {
       return {
-        bookmarks: d.bookmarks || [], highlights: d.highlights || {},
+        bookmarks: d.bookmarks || [], memory: d.memory || [], highlights: d.highlights || {},
         settings: { ...DEFAULT_SETTINGS, ...(d.settings || {}) },
         pages: d.pages ? DEFAULT_PAGES.map((p, i) => ({ ...p, ...(d.pages[i] || {}) })) : s.pages,
       };
     }
     const ids = new Set(s.bookmarks.map(b => b.book + ':' + b.chapter + ':' + b.verses.join()));
     const add = (d.bookmarks || []).filter((b: Bookmark) => !ids.has(b.book + ':' + b.chapter + ':' + b.verses.join()));
+    const mids = new Set(s.memory.map(m => m.book + ':' + m.chapter + ':' + m.verses.join()));
+    const madd = (d.memory || []).filter((m: MemCard) => !mids.has(m.book + ':' + m.chapter + ':' + m.verses.join()));
     return {
+      memory: [...s.memory, ...madd],
       bookmarks: [...s.bookmarks, ...add].sort((a, b) => b.createdAt - a.createdAt),
       highlights: { ...(d.highlights || {}), ...s.highlights },
     };
