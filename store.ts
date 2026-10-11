@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
 export type Theme = 'light' | 'sepia' | 'dark';
-export type Tab = 0 | 1 | 2 | 3 | 4 | 'bookmarks' | 'search' | 'settings';
+export type Tab = number | 'bookmarks' | 'search' | 'settings';
+export const MAX_PAGES = 10;
 
 export interface Loc { book: number; chapter: number; verse: number; }
 
@@ -27,7 +28,7 @@ export interface Settings {
   lineHeight: number;
   theme: Theme;
   fontFamily: 'sans' | 'serif';
-  pageCount: number;          // 1~5
+  pageCount: number;          // 1~10
   keepAwake: boolean;
   swipe: boolean;
   copyBookStyle: 'full' | 'short';
@@ -38,6 +39,8 @@ export interface Settings {
   verseNumStyle: 'inline' | 'hang'; // 절 번호: 글 안에 / 왼쪽 칸
   aiSearch: boolean;          // 문장 찾기에 AI 설명 사용
   wrapMode: 'char' | 'word';  // 줄바꿈: 글자 단위(꽉 차게) / 낱말 단위
+  showHeadings: boolean;      // 단락 소제목
+  showTopic: boolean;         // 장 주제
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -59,6 +62,11 @@ const DEFAULT_PAGES: PageState[] = [
   { book: 42, chapter: 3, verse: 1, history: [] },  // 요한복음 3
   { book: 44, chapter: 8, verse: 1, history: [] },  // 로마서 8
   { book: 39, chapter: 5, verse: 1, history: [] },  // 마태복음 5
+  { book: 22, chapter: 53, verse: 1, history: [] }, // 이사야 53
+  { book: 19, chapter: 3, verse: 1, history: [] },  // 잠언 3
+  { book: 43, chapter: 1, verse: 1, history: [] },  // 사도행전 1
+  { book: 57, chapter: 11, verse: 1, history: [] }, // 히브리서 11
+  { book: 65, chapter: 21, verse: 1, history: [] }, // 요한계시록 21
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -77,6 +85,8 @@ export const DEFAULT_SETTINGS: Settings = {
   verseNumStyle: 'inline',
   aiSearch: true,
   wrapMode: 'char',
+  showHeadings: true,
+  showTopic: true,
 };
 
 const KEY = 'sk-bible-v1';
@@ -92,6 +102,7 @@ function load(): AppState {
     const s = JSON.parse(raw);
     return {
       ...base, ...s,
+      tab: 0, lastPage: 0, // 앱을 켜면 항상 페이지 1
       settings: { ...DEFAULT_SETTINGS, ...(s.settings || {}) },
       pages: DEFAULT_PAGES.map((d, i) => ({ ...d, ...(s.pages?.[i] || {}), flash: undefined })),
     };

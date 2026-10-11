@@ -366,3 +366,42 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .ai-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .ai-foot button { padding: 6px 12px; border-radius: 8px; background: var(--bg2); font-size: 13px; font-weight: 600; }
 .local-head { font-size: 14px; color: var(--muted); margin: 8px 2px; font-weight: 600; }
+
+/* 페이지 10개 */
+.bottom-nav.many { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; }
+.bottom-nav.many::-webkit-scrollbar { display: none; }
+.bottom-nav.many .nav-btn { flex: 0 0 20%; scroll-snap-align: start; }
+.page-count { display: grid !important; grid-template-columns: repeat(10, 1fr); margin-bottom: 8px !important; }
+.page-count button { padding: 0 !important; }
+.page-chooser { flex-wrap: wrap; }
+
+/* 장 주제 · 단락 소제목 */
+.chap-topic { margin: -2px 4px 10px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: calc(var(--fs) * .8); line-height: 1.5; font-weight: 600; }
+.sec-head { margin: calc(var(--fs) * .9) 4px calc(var(--fs) * .3); font-size: calc(var(--fs) * .9); font-weight: 700; color: var(--accent); }
+.sec-head:first-child { margin-top: 4px; }
+
+/* 원어 설명 */
+.orig-ico { font-size: 15px; font-weight: 700; font-family: var(--serif); letter-spacing: 1px; height: 22px; line-height: 22px; }
+.orig-tabs { padding: 8px 12px 0; margin: 0; }
+.orig-body { padding: 12px 12px 40px; }
+.orig-kor { background: var(--bg2); border-radius: 12px; padding: 12px 14px; line-height: 1.7; font-size: 16px; word-break: keep-all; margin-bottom: 12px; }
+.orig-ref { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+.orig-line { font-size: 24px; line-height: 1.8; padding: 6px 4px; font-family: "SBL Hebrew", "Ezra SIL", "Noto Serif Hebrew", "Noto Serif", "Times New Roman", serif; }
+.orig-line.grk { font-size: 21px; font-family: "SBL Greek", "Gentium Plus", "Noto Serif", "Times New Roman", serif; }
+.orig-lang { margin: 0 4px 12px; }
+.heb { font-family: "SBL Hebrew", "Ezra SIL", "Noto Serif Hebrew", "Noto Serif", "Times New Roman", serif; }
+.grk { font-family: "SBL Greek", "Gentium Plus", "Noto Serif", "Times New Roman", serif; }
+.wcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; line-height: 1.55; }
+.wtop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.wword { font-size: 24px; font-weight: 600; }
+.wword.grk { font-size: 21px; }
+.wpron { font-size: 14px; }
+.wpron b { color: var(--accent); margin-right: 4px; }
+.wmean { font-size: 16px; margin-top: 2px; word-break: keep-all; }
+.wmeta { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); margin-top: 2px; flex-wrap: wrap; }
+.wmeta b { color: var(--text); font-weight: 600; font-size: 15px; }
+.wmeta .strong { font-family: ui-monospace, monospace; }
+.wgram { font-size: 13px; color: var(--vnum); margin-top: 2px; }
+.wnote { font-size: 14px; margin-top: 6px; background: var(--bg2); border-radius: 8px; padding: 6px 10px; word-break: keep-all; }
+.link-btn { color: var(--accent); text-decoration: underline; font-size: 14px; margin-left: 6px; }
+.selbar-actions > button { font-size: 12.5px; }

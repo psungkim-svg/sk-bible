@@ -35,6 +35,30 @@ const EXPLAIN_PROMPT = `당신은 한국어 성경(개역개정) 해설 도우�
 - points 는 "구절의 핵심 의미" 2~3개, 각 body 는 1~3문장.
 - 존댓말(~입니다)로 쓰고, 성경 본문과 일반적인 해석에 없는 내용은 지어내지 마세요.`;
 
+const HEADINGS_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니다.
+주어진 장을 내용에 따라 단락으로 나누고, 각 단락이 시작하는 절 번호와 짧은 한국어 소제목을 붙이세요.
+또 그 장 전체의 주제를 한 문장으로 쓰세요.
+- 단락 수: 10절 이하 1~2개, 11~30절 2~5개, 그보다 길면 3~8개 (시편 119편처럼 아주 긴 장은 히브리어 알파벳 연에 맞춰 22개)
+- 첫 단락은 반드시 1절에서 시작합니다.
+- 소제목: 4~18자, 개역개정 낱말을 살린 자연스러운 한국어. 예) "팔복", "소금과 빛", "믿음은 들음에서 나며", "아브라함이 믿음으로 의롭게 되다"
+- 참고용 영어 소제목(BSB)이 주어지면 단락 나누기에 참고하되 그대로 번역하지 말고 더 자연스럽게 쓰세요.
+- 장 주제: 40자 이내 한 문장.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"topic":"장 주제","heads":[[1,"소제목"],[14,"소제목"]]}`;
+
+const ORIGINAL_PROMPT = `당신은 성경 원어(히브리어·아람어·헬라어) 전문가이자 친절한 목회자입니다.
+주어진 구절의 원문 단어 분석 자료(STEPBible: 원어, 음역, 영어 직역, 스트롱 번호, 문법, 사전형)를 바탕으로
+성경을 사랑하는 일반 성도가 이해할 수 있게 한국어로 원어 설명과 분석을 쓰세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"summary":"이 구절을 원문으로 볼 때의 핵심을 2~4문장",
+ "words":[{"i":0,"ko":"한국어 뜻(짧게)","pron":"한글 발음","note":"중요한 단어만: 어원·쓰임·다른 구절 용례·신학적 의미 1~3문장"}],
+ "points":[{"title":"짧은 제목","body":"2~4문장"}]}
+규칙:
+- words: 모든 단어(i = 0부터 차례대로)에 대해 ko 와 pron 을 씁니다. note 는 뜻이 깊은 핵심 단어 2~5개에만 씁니다.
+- pron: 원어를 한글로 읽는 소리 (예: 마카리오이, 베레쉬트, 엘로힘).
+- points: 2~4개. 핵심 단어의 깊은 뜻, 문법(시제·태·어순 등)이 주는 의미, 개역개정 번역에서 잘 드러나지 않는 뉘앙스 등.
+- 존댓말(~입니다)로 쓰고, 확실하지 않은 내용은 지어내지 마세요.`;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -82,7 +106,7 @@ async function runLLM(env, system, user) {
           { role: 'system', content: system },
           { role: 'user', content: user },
         ],
-        max_tokens: 3000,
+        max_tokens: 6000,
         temperature: 0.2,
       });
       const out = parseJson(extractText(r));
@@ -104,6 +128,36 @@ async function handleAsk(request, env) {
   if (!q) return json({ error: '질문이 비어 있습니다' }, 400);
 
   try {
+    if (body.step === 'headings') {
+      const verses = (Array.isArray(body.verses) ? body.verses : []).slice(0, 200);
+      const per = verses.length > 60 ? 70 : 160;
+      const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, 14000);
+      const hints = (Array.isArray(body.hints) ? body.hints : []).slice(0, 30)
+        .map(h => `${Number(h?.[0]) || 1}절: ${clip(h?.[1], 80)}`).join(', ');
+      const out = await runLLM(env, HEADINGS_PROMPT,
+        `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n참고 영어 소제목(BSB): ${hints || '(없음)'}\n\n본문:\n${text}`);
+      return json({
+        topic: clip(out.topic, 120),
+        heads: (Array.isArray(out.heads) ? out.heads : []).slice(0, 30)
+          .map(h => [Number(Array.isArray(h) ? h[0] : h?.v) || 0, clip(Array.isArray(h) ? h[1] : h?.title, 60)]),
+      });
+    }
+    if (body.step === 'original') {
+      const words = (Array.isArray(body.words) ? body.words : []).slice(0, 120);
+      const list = words.map(w =>
+        `${Number(w.i)}. ${clip(w.w, 40)} [${clip(w.tr, 40)}] "${clip(w.en, 60)}" ${clip(w.s, 12)} / ${clip(w.g, 80)}${w.lemma ? ` / 사전형 ${clip(w.lemma, 40)}=${clip(w.lg, 60)}` : ''}`,
+      ).join('\n');
+      const out = await runLLM(env, ORIGINAL_PROMPT,
+        `구절: ${q} (${clip(body.lang, 10)})\n개역개정: ${clip(body.korean, 600)}\n\n원문 단어:\n${list}`);
+      return json({
+        summary: clip(out.summary, 1500),
+        words: (Array.isArray(out.words) ? out.words : []).slice(0, 120).map(w => ({
+          i: Number(w?.i), ko: clip(w?.ko, 80), pron: clip(w?.pron, 40), note: clip(w?.note, 500),
+        })),
+        points: (Array.isArray(out.points) ? out.points : []).slice(0, 5)
+          .map(p => ({ title: clip(p?.title, 80), body: clip(p?.body, 900) })),
+      });
+    }
     if (body.step === 'find') {
       const cands = (Array.isArray(body.candidates) ? body.candidates : []).slice(0, 10)
         .map(c => `- ${clip(c.ref, 30)} ${clip(c.text, 300)}`).join('\n');

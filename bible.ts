@@ -81,7 +81,7 @@ export function buildCopyText(data: BibleData, book: number, chapter: number, ve
     const t = data[book][chapter - 1][n - 1] ?? '';
     return showNum ? `${n} ${t}` : t;
   }).join('\n');
-  return opt.refPosition === 'top' ? `${label}\n${body}` : `${body}\n(${label})`;
+  return opt.refPosition === 'top' ? `(${label})\n${body}` : `${body}\n(${label})`;
 }
 
 export interface SearchHit { book: number; chapter: number; verse: number; text: string; }

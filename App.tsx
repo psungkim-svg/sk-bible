@@ -49,6 +49,11 @@ export default function App() {
 
   useWakeLock(settings.keepAwake && typeof tab === 'number');
 
+  // 페이지가 많을 때 지금 페이지 버튼이 보이도록
+  useEffect(() => {
+    if (typeof tab === 'number') document.querySelector('.bottom-nav .nav-btn.on')?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  }, [tab, settings.pageCount]);
+
   if (error) return <div className="splash"><div>⚠️ {error}</div><button onClick={() => location.reload()}>다시 시도</button></div>;
   if (!data) return <div className="splash"><div className="spinner" /><div>성경을 불러오는 중…</div></div>;
 
@@ -64,7 +69,7 @@ export default function App() {
       </main>
 
       {/* 하단: 페이지마다 지금 읽는 곳(책 · 장 · 절)을 보여 줍니다 */}
-      <nav className="bottom-nav">
+      <nav className={'bottom-nav' + (settings.pageCount > 5 ? ' many' : '')}>
         {pageIdx.map(i => {
           const p = pages[i];
           const name = BOOKS[p.book].name;

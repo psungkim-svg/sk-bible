@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { BibleData, buildCopyText, refLabel } from './bible';
 import { BOOKS } from './books';
@@ -8,6 +8,8 @@ import {
 import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 import ToolIcons from './ToolIcons';
+import OriginalView from './OriginalView';
+import { ChapterHeads, ensureHeads, useHeads } from './headings';
 
 interface Props { index: number; data: BibleData; active: boolean; }
 
@@ -28,6 +30,13 @@ export default function Reader({ index, data, active }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
   const [flashV, setFlashV] = useState<number | undefined>();
+  const [origOpen, setOrigOpen] = useState<number[] | null>(null);
+  const showHeads = settings.showHeadings || settings.showTopic;
+  const heads = useHeads(book, chapter);
+  // 장 주제 · 소제목: 처음 여는 장이면 AI에게 요청 (인터넷이 될 때)
+  useEffect(() => {
+    if (active && showHeads) ensureHeads(data, book, chapter);
+  }, [active, showHeads, data, book, chapter]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -279,6 +288,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
+            heads={showHeads ? heads : undefined} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -294,7 +304,7 @@ export default function Reader({ index, data, active }: Props) {
         </div>
         {ghost && (
           <div className="scroll ghost" ref={ghostRef} style={{ transform: `translateX(${ghost.dir * 100}%)` }} aria-hidden>
-            <ChapterBody data={data} book={ghost.book} chapter={ghost.chapter} highlights={highlights} limit={60} />
+            <GhostBody data={data} book={ghost.book} chapter={ghost.chapter} highlights={highlights} showHeadings={settings.showHeadings} showTopic={settings.showTopic} />
           </div>
         )}
       </div>
@@ -315,12 +325,17 @@ export default function Reader({ index, data, active }: Props) {
           ) : (
             <div className="selbar-actions">
               <button onClick={doCopy}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
-              <button onClick={doShare}><Ico d="M12 3v13M7 8l5-5 5 5M5 14v7h14v-7" />공유</button>
               <button onClick={doBookmark}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
               <button onClick={() => setHlOpen(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
+              <button onClick={() => { setOrigOpen(sortedSel); clearSel(); }}><span className="orig-ico">א Ω</span>원어설명</button>
+              <button onClick={doShare}><Ico d="M12 3v13M7 8l5-5 5 5M5 14v7h14v-7" />공유</button>
             </div>
           )}
         </div>
+      )}
+
+      {origOpen && (
+        <OriginalView data={data} book={book} chapter={chapter} verses={origOpen} onClose={() => setOrigOpen(null)} />
       )}
 
       {pickerOpen && (
@@ -344,6 +359,9 @@ interface BodyProps {
   selected?: number[];
   flashV?: number;
   limit?: number;
+  heads?: ChapterHeads;
+  showHeadings?: boolean;
+  showTopic?: boolean;
   handlers?: {
     onClick: (v: number) => void;
     onTouchStart: (v: number, e: React.TouchEvent) => void;
@@ -354,20 +372,25 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, heads, showHeadings, showTopic, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
+  const headAt = new Map<number, string>();
+  if (heads && showHeadings) for (const [v, t] of heads.heads) headAt.set(v, t);
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
+      {showTopic && heads?.topic && <div className="chap-topic">{heads.topic}</div>}
       <div className="verses">
         {verses.map((t, i) => {
           const v = i + 1;
+          const head = headAt.get(v);
           const hl = highlights[`${book}:${chapter}:${v}`];
           const m = t.match(/^(\[[^\]]+\])\s*(.*)$/); // 시편 표제 등
           return (
+            <Fragment key={v}>
+            {head && <h3 className="sec-head">{head}</h3>}
             <p
-              key={v}
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
               onClick={h && (() => h.onClick(v))}
@@ -379,12 +402,19 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
               <span className="vnum">{v}{bookmarked?.has(v) && <span className="bm-dot" />}</span>
               {m ? <><span className="vtitle">{m[1]}</span> {m[2]}</> : t}
             </p>
+            </Fragment>
           );
         })}
       </div>
     </>
   );
 });
+
+/** 옆에서 따라 들어오는 장 (소제목도 함께) */
+function GhostBody(p: { data: BibleData; book: number; chapter: number; highlights: Record<string, HlColor>; showHeadings: boolean; showTopic: boolean }) {
+  const heads = useHeads(p.book, p.chapter);
+  return <ChapterBody {...p} heads={heads} limit={60} />;
+}
 
 function Ico({ d }: { d: string }) {
   return <svg viewBox="0 0 24 24" width="22" height="22"><path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
