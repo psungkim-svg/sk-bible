@@ -17,7 +17,6 @@ const ASSETS: Record<string, string> = {
   'icons/maskable-512.png': 'maskable-512.png',
   'icons/apple-touch-icon.png': 'apple-touch-icon.png',
   'icons/favicon.png': 'favicon.png',
-  'data/bsb-headings.json': 'bsb-headings.json',
 };
 // 원어 자료 (필요할 때만 내려받음)
 for (let i = 1; i <= 9; i++) ASSETS[`data/orig-${i}.json`] = `orig-${i}.json`;

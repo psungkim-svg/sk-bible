@@ -9,7 +9,7 @@ import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 import ToolIcons from './ToolIcons';
 import OriginalView from './OriginalView';
-import { ChapterHeads, ensureHeads, useHeads } from './headings';
+import { ensureTopic, getHeads, Head, TopicState, useTopic } from './headings';
 
 interface Props { index: number; data: BibleData; active: boolean; }
 
@@ -31,12 +31,11 @@ export default function Reader({ index, data, active }: Props) {
   const [hlOpen, setHlOpen] = useState(false);
   const [flashV, setFlashV] = useState<number | undefined>();
   const [origOpen, setOrigOpen] = useState<number[] | null>(null);
-  const showHeads = settings.showHeadings || settings.showTopic;
-  const heads = useHeads(book, chapter);
-  // 장 주제 · 소제목: 처음 여는 장이면 AI에게 요청 (인터넷이 될 때)
+  const topic = useTopic(book, chapter);
+  // 장 주제: 처음 여는 장이면 AI에게 요청 (인터넷이 될 때). 소제목은 앱 안에 들어 있음
   useEffect(() => {
-    if (active && showHeads) ensureHeads(data, book, chapter);
-  }, [active, showHeads, data, book, chapter]);
+    if (active && settings.showTopic) ensureTopic(data, book, chapter);
+  }, [active, settings.showTopic, data, book, chapter]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -288,7 +287,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
-            heads={showHeads ? heads : undefined} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            topic={topic} onRetryTopic={() => ensureTopic(data, book, chapter, true)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -359,7 +358,8 @@ interface BodyProps {
   selected?: number[];
   flashV?: number;
   limit?: number;
-  heads?: ChapterHeads;
+  topic?: TopicState;
+  onRetryTopic?: () => void;
   showHeadings?: boolean;
   showTopic?: boolean;
   handlers?: {
@@ -372,15 +372,19 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, heads, showHeadings, showTopic, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, showHeadings, showTopic, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
-  const headAt = new Map<number, string>();
-  if (heads && showHeadings) for (const [v, t] of heads.heads) headAt.set(v, t);
+  const headAt = new Map<number, Head[]>();
+  if (showHeadings) for (const hd of getHeads(book, chapter)) headAt.set(hd.v, [...(headAt.get(hd.v) ?? []), hd]);
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
-      {showTopic && heads?.topic && <div className="chap-topic">{heads.topic}</div>}
+      {showTopic && topic?.status === 'ready' && <div className="chap-topic">{topic.topic}</div>}
+      {showTopic && topic?.status === 'loading' && <div className="chap-topic pending">장 주제를 만드는 중…</div>}
+      {showTopic && topic?.status === 'fail' && onRetryTopic && (
+        <button className="chap-topic fail" onClick={onRetryTopic}>장 주제를 못 만들었어요 ({topic.error}) · 눌러서 다시 시도</button>
+      )}
       <div className="verses">
         {verses.map((t, i) => {
           const v = i + 1;
@@ -389,7 +393,9 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
           const m = t.match(/^(\[[^\]]+\])\s*(.*)$/); // 시편 표제 등
           return (
             <Fragment key={v}>
-            {head && <h3 className="sec-head">{head}</h3>}
+            {head?.map((hd, j) => (
+              <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
+            ))}
             <p
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
@@ -412,8 +418,8 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
 
 /** 옆에서 따라 들어오는 장 (소제목도 함께) */
 function GhostBody(p: { data: BibleData; book: number; chapter: number; highlights: Record<string, HlColor>; showHeadings: boolean; showTopic: boolean }) {
-  const heads = useHeads(p.book, p.chapter);
-  return <ChapterBody {...p} heads={heads} limit={60} />;
+  const topic = useTopic(p.book, p.chapter);
+  return <ChapterBody {...p} topic={topic} limit={60} />;
 }
 
 function Ico({ d }: { d: string }) {

@@ -1,93 +1,98 @@
 /* ================================================================
-   장 주제 + 단락 소제목
-   - 처음 여는 장은 AI(Cloudflare Workers AI)가 개역개정 본문을 읽고 만들어 줍니다.
-     (영어 BSB 성경의 소제목을 참고 · BSB는 퍼블릭 도메인)
-   - 한 번 만든 것은 폰에 저장되어 인터넷 없이도 보입니다.
+   단락 소제목 + 장 주제
+   - 단락 소제목: 개역개정 성경책에 있는 소제목 (kheads.json, 앱 안에 들어 있음)
+     → 모든 장에서 바로, 인터넷 없이도 보입니다.
+   - 장 주제: 장 맨 위 한 줄. 처음 여는 장은 AI가 만들어 폰에 저장합니다. (인터넷 필요)
    ================================================================ */
 import { useSyncExternalStore } from 'react';
 import type { BibleData } from './bible';
 import { BOOKS } from './books';
+import KH from './kheads.json';
 
-export interface ChapterHeads { topic: string; heads: [number, string][]; }
+export interface Head { v: number; title: string; refs?: string }
 
-const KEY = 'sk-heads-v1';
-let cache: Record<string, ChapterHeads> = {};
+const OFFICIAL = KH as unknown as Record<string, Record<string, (number | string)[][]>>;
+
+/** 이 장의 단락 소제목 (개역개정) */
+export function getHeads(book: number, chapter: number): Head[] {
+  const list = OFFICIAL[String(book)]?.[String(chapter)] ?? [];
+  return list.map(h => ({ v: Number(h[0]), title: String(h[1]), refs: h[2] ? String(h[2]) : undefined }));
+}
+
+/* ---------------- 장 주제 (AI) ---------------- */
+export type TopicStatus = 'ready' | 'loading' | 'fail' | 'none';
+export interface TopicState { status: TopicStatus; topic?: string; error?: string }
+
+const KEY = 'sk-topic-v1';
+let cache: Record<string, string> = {};
 try { cache = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { cache = {}; }
+// 예전 버전(1.4.0)에서 만든 장 주제는 그대로 가져오기
+try {
+  const old = JSON.parse(localStorage.getItem('sk-heads-v1') || 'null') as Record<string, { topic?: string }> | null;
+  if (old) {
+    for (const [k, v] of Object.entries(old)) if (v?.topic && !cache[k]) cache[k] = v.topic;
+    localStorage.removeItem('sk-heads-v1');
+    localStorage.setItem(KEY, JSON.stringify(cache));
+  }
+} catch { /* 무시 */ }
 
 const listeners = new Set<() => void>();
-const inflight = new Set<string>();
-const failedAt: Record<string, number> = {};
-let bsb: Record<string, Record<string, [number, string][]>> | null = null;
-let bsbLoading: Promise<void> | null = null;
+const status: Record<string, TopicState> = {};
+const NONE: TopicState = { status: 'none' };
 
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch { /* 저장 공간 부족 */ }
-  listeners.forEach(l => l());
-}
+function emit() { listeners.forEach(l => l()); }
+function setStatus(k: string, s: TopicState) { status[k] = s; emit(); }
 
-async function loadBsb() {
-  if (bsb) return;
-  if (!bsbLoading) {
-    bsbLoading = fetch('/data/bsb-headings.json')
-      .then(r => (r.ok ? r.json() : {}))
-      .then(j => { bsb = j; })
-      .catch(() => { bsb = {}; });
-  }
-  await bsbLoading;
-}
-
-/** 이 장의 소제목을 (없으면) 만들어 달라고 요청 */
-export async function ensureHeads(data: BibleData, book: number, chapter: number) {
+/** 이 장의 주제가 없으면 AI에게 만들어 달라고 요청 (force: 실패 후 다시 시도) */
+export async function ensureTopic(data: BibleData, book: number, chapter: number, force = false) {
   const k = `${book}:${chapter}`;
-  if (cache[k] || inflight.has(k) || !navigator.onLine) return;
-  if (failedAt[k] && Date.now() - failedAt[k] < 10 * 60 * 1000) return;
-  inflight.add(k);
+  if (cache[k]) return;
+  const st = status[k]?.status;
+  if (st === 'loading' || (st === 'fail' && !force)) return;
+  if (!navigator.onLine) return;
+  setStatus(k, { status: 'loading' });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
   try {
-    await loadBsb();
     const verses = data[book]?.[chapter - 1] ?? [];
     const res = await fetch('/api/ask', {
       method: 'POST',
+      signal: ctrl.signal,
       headers: { 'content-type': 'application/json', 'x-sk-app': '1' },
       body: JSON.stringify({
-        step: 'headings',
+        step: 'topic',
         q: `${BOOKS[book].name} ${chapter}`,
         book: BOOKS[book].name,
         chapter,
-        hints: bsb?.[String(book)]?.[String(chapter)] ?? [],
+        heads: getHeads(book, chapter).map(h => [h.v, h.title]),
         verses,
       }),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok || !j || j.error) throw new Error(j?.error || 'fail');
-    const max = verses.length;
-    const heads: [number, string][] = (Array.isArray(j.heads) ? j.heads : [])
-      .map((h: unknown) => (Array.isArray(h) ? [Number(h[0]), String(h[1] ?? '').trim()] : [0, '']) as [number, string])
-      .filter(([v, t]: [number, string]) => v >= 1 && v <= max && t)
-      .sort((a: [number, string], b: [number, string]) => a[0] - b[0]);
-    const uniq: [number, string][] = [];
-    for (const h of heads) if (!uniq.some(u => u[0] === h[0])) uniq.push(h);
-    cache[k] = { topic: String(j.topic ?? '').trim(), heads: uniq };
-    save();
-  } catch {
-    failedAt[k] = Date.now();
+    if (!res.ok || !j || j.error || !j.topic) throw new Error(j?.error || `서버 응답 ${res.status}`);
+    cache[k] = String(j.topic).trim();
+    try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch { /* 저장 공간 부족 */ }
+    setStatus(k, { status: 'ready', topic: cache[k] });
+  } catch (e) {
+    const msg = e instanceof Error ? (e.name === 'AbortError' ? '시간 초과' : e.message) : String(e);
+    setStatus(k, { status: 'fail', error: msg });
   } finally {
-    inflight.delete(k);
+    clearTimeout(timer);
   }
 }
 
-export function useHeads(book: number, chapter: number): ChapterHeads | undefined {
+export function useTopic(book: number, chapter: number): TopicState {
+  const k = `${book}:${chapter}`;
   return useSyncExternalStore(
     cb => { listeners.add(cb); return () => listeners.delete(cb); },
-    () => cache[`${book}:${chapter}`],
+    () => (cache[k] ? (status[k]?.status === 'ready' ? status[k] : (status[k] = { status: 'ready', topic: cache[k] })) : status[k] ?? NONE),
   );
 }
 
-/** 마음에 들지 않으면 지우고 다시 만들기 */
-export function resetHeads(book: number, chapter: number) {
-  delete cache[`${book}:${chapter}`];
-  delete failedAt[`${book}:${chapter}`];
-  save();
+export function topicCount() { return Object.keys(cache).length; }
+export function clearAllTopics() {
+  cache = {};
+  for (const k of Object.keys(status)) delete status[k];
+  try { localStorage.setItem(KEY, '{}'); } catch { /* 무시 */ }
+  emit();
 }
-
-export function headsCount() { return Object.keys(cache).length; }
-export function clearAllHeads() { cache = {}; save(); }

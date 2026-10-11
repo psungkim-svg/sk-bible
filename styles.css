@@ -379,6 +379,9 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .chap-topic { margin: -2px 4px 10px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: calc(var(--fs) * .8); line-height: 1.5; font-weight: 600; }
 .sec-head { margin: calc(var(--fs) * .9) 4px calc(var(--fs) * .3); font-size: calc(var(--fs) * .9); font-weight: 700; color: var(--accent); }
 .sec-head:first-child { margin-top: 4px; }
+.sec-refs { font-weight: 400; font-size: .78em; color: var(--muted); margin-left: 6px; }
+.chap-topic.pending { opacity: .6; font-weight: 400; }
+button.chap-topic.fail { display: block; width: calc(100% - 8px); text-align: left; background: var(--bg2); color: var(--muted); font-weight: 400; }
 
 /* 원어 설명 */
 .orig-ico { font-size: 15px; font-weight: 700; font-family: var(--serif); letter-spacing: 1px; height: 22px; line-height: 22px; }

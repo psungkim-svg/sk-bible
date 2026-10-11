@@ -35,16 +35,13 @@ const EXPLAIN_PROMPT = `당신은 한국어 성경(개역개정) 해설 도우�
 - points 는 "구절의 핵심 의미" 2~3개, 각 body 는 1~3문장.
 - 존댓말(~입니다)로 쓰고, 성경 본문과 일반적인 해석에 없는 내용은 지어내지 마세요.`;
 
-const HEADINGS_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니다.
-주어진 장을 내용에 따라 단락으로 나누고, 각 단락이 시작하는 절 번호와 짧은 한국어 소제목을 붙이세요.
-또 그 장 전체의 주제를 한 문장으로 쓰세요.
-- 단락 수: 10절 이하 1~2개, 11~30절 2~5개, 그보다 길면 3~8개 (시편 119편처럼 아주 긴 장은 히브리어 알파벳 연에 맞춰 22개)
-- 첫 단락은 반드시 1절에서 시작합니다.
-- 소제목: 4~18자, 개역개정 낱말을 살린 자연스러운 한국어. 예) "팔복", "소금과 빛", "믿음은 들음에서 나며", "아브라함이 믿음으로 의롭게 되다"
-- 참고용 영어 소제목(BSB)이 주어지면 단락 나누기에 참고하되 그대로 번역하지 말고 더 자연스럽게 쓰세요.
-- 장 주제: 40자 이내 한 문장.
+const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니다.
+주어진 장 전체의 주제를 한국어 한 문장(40자 이내)으로 쓰세요.
+- 그 장의 핵심 내용이 한눈에 들어오게, 개역개정 낱말을 살려 자연스럽게 씁니다.
+  예) 마태복음 5장 → "산상수훈: 천국 백성의 복과 더 나은 의"
+- 단락 소제목이 주어지면 참고하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"topic":"장 주제","heads":[[1,"소제목"],[14,"소제목"]]}`;
+{"topic":"장 주제"}`;
 
 const ORIGINAL_PROMPT = `당신은 성경 원어(히브리어·아람어·헬라어) 전문가이자 친절한 목회자입니다.
 주어진 구절의 원문 단어 분석 자료(STEPBible: 원어, 음역, 영어 직역, 스트롱 번호, 문법, 사전형)를 바탕으로
@@ -128,19 +125,17 @@ async function handleAsk(request, env) {
   if (!q) return json({ error: '질문이 비어 있습니다' }, 400);
 
   try {
-    if (body.step === 'headings') {
+    if (body.step === 'topic') {
       const verses = (Array.isArray(body.verses) ? body.verses : []).slice(0, 200);
-      const per = verses.length > 60 ? 70 : 160;
-      const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, 14000);
-      const hints = (Array.isArray(body.hints) ? body.hints : []).slice(0, 30)
-        .map(h => `${Number(h?.[0]) || 1}절: ${clip(h?.[1], 80)}`).join(', ');
-      const out = await runLLM(env, HEADINGS_PROMPT,
-        `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n참고 영어 소제목(BSB): ${hints || '(없음)'}\n\n본문:\n${text}`);
-      return json({
-        topic: clip(out.topic, 120),
-        heads: (Array.isArray(out.heads) ? out.heads : []).slice(0, 30)
-          .map(h => [Number(Array.isArray(h) ? h[0] : h?.v) || 0, clip(Array.isArray(h) ? h[1] : h?.title, 60)]),
-      });
+      const per = verses.length > 60 ? 50 : 120;
+      const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, 9000);
+      const heads = (Array.isArray(body.heads) ? body.heads : []).slice(0, 30)
+        .map(h => `${Number(h?.[0]) || 1}절 ${clip(h?.[1], 80)}`).join(' / ');
+      const out = await runLLM(env, TOPIC_PROMPT,
+        `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n단락 소제목: ${heads || '(없음)'}\n\n본문:\n${text}`);
+      const topic = clip(out.topic, 120).trim();
+      if (!topic) return json({ error: 'AI가 주제를 쓰지 않았습니다' }, 502);
+      return json({ topic });
     }
     if (body.step === 'original') {
       const words = (Array.isArray(body.words) ? body.words : []).slice(0, 120);

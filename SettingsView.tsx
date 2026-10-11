@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ToolIcons from './ToolIcons';
-import { clearAllHeads } from './headings';
+import { clearAllTopics } from './headings';
 import { APP_VERSION, applyUpdate, BUILD_TIME, CHANGELOG, fetchLatest, formatBuildTime } from './pwa';
 import { DEFAULT_SETTINGS, exportBackup, importBackup, setSettings, Settings, useStore } from './store';
 import { toast } from './utils';
@@ -131,8 +131,8 @@ export default function SettingsView({ active }: { active: boolean }) {
           <Toggle label="읽는 동안 화면 꺼짐 방지" value={s.keepAwake} onChange={v => set('keepAwake', v)} />
           <Toggle label="좌우로 밀어서 장 넘기기" value={s.swipe} onChange={v => set('swipe', v)} />
           <Toggle label="문장으로 찾기에 AI 설명 (인터넷 필요)" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
-          <Toggle label="장 주제 보기" value={s.showTopic} onChange={v => set('showTopic', v)} />
-          <Toggle label="단락 소제목 보기" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
+          <Toggle label="장 주제 보기 (AI · 인터넷 필요)" value={s.showTopic} onChange={v => set('showTopic', v)} />
+          <Toggle label="단락 소제목 보기 (개역개정)" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
           <div className="row"><span>페이지 개수 <span className="muted">(6개부터는 아래 버튼을 옆으로 밀어서)</span></span></div>
           <div className="seg small page-count">
             {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <button key={n} className={s.pageCount === n ? 'on' : ''} onClick={() => set('pageCount', n)}>{n}</button>)}
@@ -180,7 +180,7 @@ export default function SettingsView({ active }: { active: boolean }) {
           <h3>기타</h3>
           <div className="btn-row">
             <button onClick={() => { if (confirm('보기 설정을 기본값으로 되돌릴까요? (북마크는 그대로입니다)')) setSettings(DEFAULT_SETTINGS); }}>설정 초기화</button>
-            <button onClick={() => { if (confirm('저장된 장 주제·소제목을 지우고 다시 만들까요?')) { clearAllHeads(); toast('지웠습니다. 장을 열면 다시 만듭니다'); } }}>소제목 다시 만들기</button>
+            <button onClick={() => { if (confirm('저장된 장 주제를 지우고 다시 만들까요?')) { clearAllTopics(); toast('지웠습니다. 장을 열면 다시 만듭니다'); } }}>장 주제 다시 만들기</button>
           </div>
         </section>
 
