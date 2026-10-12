@@ -49,6 +49,9 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.5.1', [
+    '앱 아이콘 바탕색을 진한 노랑으로 (십자가는 갈색)',
+  ]],
   ['1.5.0', [
     '해설: 절을 고르고 "해설" → AI 구절 해설 (문맥·배경·뜻·적용·기도)',
     '관련 구절(관주): 연결된 성경 구절을 바로 보고 이동 (인터넷 없이)',
