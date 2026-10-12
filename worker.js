@@ -40,6 +40,7 @@ const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니�
 - 그 장의 핵심 내용이 한눈에 들어오게, 개역개정 낱말을 살려 자연스럽게 씁니다.
   예) 마태복음 5장 → "산상수훈: 천국 백성의 복과 더 나은 의"
 - 단락 소제목이 주어지면 참고하세요.
+- 한국어 맞춤법과 띄어쓰기를 반드시 지키세요. (낱말 사이를 붙여 쓰지 마세요)
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"topic":"장 주제"}`;
 
@@ -129,6 +130,11 @@ function parseJson(text) {
   try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
 }
 
+/** 띄어쓰기 없이 길게 붙은 문장인지 (예: "하나님이일곱날안식...") */
+function isSquashed(t) {
+  return t.replace(/[^가-힣]/g, '').length > 12 && !/\s/.test(t);
+}
+
 async function runLLM(env, system, user) {
   let lastErr = new Error('AI를 사용할 수 없습니다');
   for (const model of MODELS) {
@@ -166,9 +172,15 @@ async function handleAsk(request, env) {
       const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, 9000);
       const heads = (Array.isArray(body.heads) ? body.heads : []).slice(0, 30)
         .map(h => `${Number(h?.[0]) || 1}절 ${clip(h?.[1], 80)}`).join(' / ');
-      const out = await runLLM(env, TOPIC_PROMPT,
-        `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n단락 소제목: ${heads || '(없음)'}\n\n본문:\n${text}`);
-      const topic = clip(out.topic, 120).trim();
+      const ask = `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n단락 소제목: ${heads || '(없음)'}\n\n본문:\n${text}`;
+      // 가끔 AI가 띄어쓰기 없이 붙여 쓰는 경우가 있어, 그러면 한 번 더 요청
+      let topic = '';
+      for (let tries = 0; tries < 2; tries++) {
+        const out = await runLLM(env, TOPIC_PROMPT, ask);
+        topic = clip(out.topic, 120).trim();
+        if (!topic || !isSquashed(topic)) break;
+        if (tries === 1) topic = '';
+      }
       if (!topic) return json({ error: 'AI가 주제를 쓰지 않았습니다' }, 502);
       return json({ topic });
     }

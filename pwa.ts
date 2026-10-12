@@ -49,6 +49,10 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.5.2', [
+    '앱 아이콘 바탕색을 #FFCB05 (밝은 노랑)으로',
+    'AI 장 주제가 띄어쓰기 없이 붙어 나오던 문제 고침',
+  ]],
   ['1.5.1', [
     '앱 아이콘 바탕색을 진한 노랑으로 (십자가는 갈색)',
   ]],

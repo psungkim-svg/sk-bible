@@ -26,6 +26,9 @@ export interface TopicState { status: TopicStatus; topic?: string; error?: strin
 const KEY = 'sk-topic-v1';
 let cache: Record<string, string> = {};
 try { cache = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { cache = {}; }
+// 띄어쓰기 없이 붙어 버린 예전 장 주제는 버리고 새로 받기
+const squashed = (t: string) => t.replace(/[^가-힣]/g, '').length > 12 && !/\s/.test(t);
+for (const [k, v] of Object.entries(cache)) if (typeof v !== 'string' || squashed(v)) delete cache[k];
 // 예전 버전(1.4.0)에서 만든 장 주제는 그대로 가져오기
 try {
   const old = JSON.parse(localStorage.getItem('sk-heads-v1') || 'null') as Record<string, { topic?: string }> | null;
@@ -70,6 +73,7 @@ export async function ensureTopic(data: BibleData, book: number, chapter: number
     });
     const j = await res.json().catch(() => null);
     if (!res.ok || !j || j.error || !j.topic) throw new Error(j?.error || `서버 응답 ${res.status}`);
+    if (squashed(String(j.topic))) throw new Error('주제 띄어쓰기 오류 — 다시 시도해 주세요');
     cache[k] = String(j.topic).trim();
     try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch { /* 저장 공간 부족 */ }
     setStatus(k, { status: 'ready', topic: cache[k] });
