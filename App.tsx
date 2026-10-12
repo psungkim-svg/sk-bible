@@ -8,6 +8,27 @@ import SettingsView from './SettingsView';
 import { navBack, openTab, Tab, useStore } from './store';
 import { initBackHandling, registerToast, setRootBack, useWakeLock } from './utils';
 
+/* 아래 페이지 버튼 글씨: 한 화면에 5개가 항상 보이도록, 칸 너비에 맞춰 크기를 줄임 (최대 = 메뉴 글씨 크기) */
+let measureCtx: CanvasRenderingContext2D | null = null;
+function fitFont(text: string, maxPx: number, widthPx: number, bold: boolean) {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return maxPx;
+  const fam = getComputedStyle(document.body).fontFamily || 'sans-serif';
+  measureCtx.font = `${bold ? 700 : 400} 100px ${fam}`;
+  const w = measureCtx.measureText(text).width;
+  if (!w) return maxPx;
+  return Math.max(9, Math.min(maxPx, Math.floor((widthPx * 100 / w) * 10) / 10));
+}
+function useWindowWidth() {
+  const [w, setW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return w;
+}
+
 const THEME_COLORS = { light: '#7a2e2e', sepia: '#6b4a2b', dark: '#15171c' };
 
 export default function App() {
@@ -17,6 +38,7 @@ export default function App() {
   const tab = useStore(s => s.tab);
   const settings = useStore(s => s.settings);
   const pages = useStore(s => s.pages);
+  const winW = useWindowWidth();
 
   useEffect(() => { loadBible().then(setData).catch(e => setError(String(e.message || e))); }, []);
 
@@ -33,7 +55,9 @@ export default function App() {
     const root = document.documentElement;
     root.dataset.theme = settings.theme;
     root.style.setProperty('--fs', settings.fontSize + 'px');
-    root.style.setProperty('--ui', (settings.uiFontSize || 20) + 'px');
+    root.style.setProperty('--menu', (settings.menuFontSize || 20) + 'px');
+    root.style.setProperty('--desc', (settings.descFontSize || 20) + 'px');
+    root.style.setProperty('--title', (settings.titleFontSize || 22) + 'px');
     root.style.setProperty('--lh', String(settings.lineHeight));
     root.style.setProperty('--vg', settings.verseGap + 'px');
     root.style.setProperty('--side', settings.sideMargin + 'px');
@@ -41,7 +65,7 @@ export default function App() {
     root.dataset.vnum = settings.verseNumStyle;
     root.dataset.wrap = settings.wrapMode;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[settings.theme]);
-  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode, settings.uiFontSize]);
+  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode, settings.menuFontSize, settings.descFontSize, settings.titleFontSize]);
 
   // 페이지 개수를 줄였을 때
   useEffect(() => {
@@ -70,15 +94,19 @@ export default function App() {
       </main>
 
       {/* 하단: 페이지마다 지금 읽는 곳(책 · 장 · 절)을 보여 줍니다 */}
-      <nav className={'bottom-nav' + (settings.pageCount > 3 ? ' many' : '')}>
+      <nav className={'bottom-nav' + (settings.pageCount > 5 ? ' many' : '')}>
         {pageIdx.map(i => {
           const p = pages[i];
           const name = BOOKS[p.book].name;
-          const fs = name.length >= 7 ? 'calc(var(--ui) * .86)' : name.length >= 6 ? 'calc(var(--ui) * .94)' : 'var(--ui)';
+          const cv = `${p.chapter}${p.book === 18 ? '편' : '장'} ${p.verse}절`;
+          const cell = winW / Math.min(settings.pageCount, 5) - 10; // 칸 너비 - 여백
+          const menu = settings.menuFontSize || 20;
+          const fs = fitFont(name, menu, cell, true);
+          const fsCv = fitFont(cv, menu, cell, tab === i);
           return (
             <button key={i} className={'nav-btn pg' + (tab === i ? ' on' : '')} onClick={() => openTab(i as Tab)}>
               <span className="pg-book" style={{ fontSize: fs }}>{name}</span>
-              <span className="pg-cv">{p.chapter}{p.book === 18 ? '편' : '장'} {p.verse}절</span>
+              <span className="pg-cv" style={{ fontSize: fsCv }}>{cv}</span>
             </button>
           );
         })}

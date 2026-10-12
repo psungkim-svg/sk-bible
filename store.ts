@@ -53,7 +53,9 @@ export interface Settings {
   wrapMode: 'char' | 'word';  // 줄바꿈: 글자 단위(꽉 차게) / 낱말 단위
   showHeadings: boolean;      // 단락 소제목
   showTopic: boolean;         // 장 주제
-  uiFontSize: number;         // 성경 본문 말고 나머지 글씨 (메뉴·버튼·설명)
+  menuFontSize: number;       // 메뉴·버튼·제목줄 글씨
+  descFontSize: number;       // 설명 글씨 (AI 해설·소개·낱말 풀이 등)
+  titleFontSize: number;      // 본문 위 성경 제목 (예: 전도서 8장)
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -84,6 +86,16 @@ const DEFAULT_PAGES: PageState[] = [
   { book: 65, chapter: 21, verse: 1, history: [] }, // 요한계시록 21
 ];
 
+/** 저장된 설정 + 기본값 (v1.5.3의 '메뉴·설명 글씨 크기' 하나를 둘로 나눠 옮김) */
+function withDefaults(saved: Record<string, unknown> | undefined): Settings {
+  const o = { ...(saved || {}) } as Record<string, unknown>;
+  const ui = Number(o.uiFontSize);
+  if (ui && o.menuFontSize == null) o.menuFontSize = ui;
+  if (ui && o.descFontSize == null) o.descFontSize = ui;
+  delete o.uiFontSize;
+  return { ...DEFAULT_SETTINGS, ...(o as Partial<Settings>) };
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   fontSize: 19,
   lineHeight: 1.75,
@@ -102,7 +114,9 @@ export const DEFAULT_SETTINGS: Settings = {
   wrapMode: 'char',
   showHeadings: true,
   showTopic: true,
-  uiFontSize: 20,
+  menuFontSize: 20,
+  descFontSize: 20,
+  titleFontSize: 22,
 };
 
 const KEY = 'sk-bible-v1';
@@ -119,7 +133,7 @@ function load(): AppState {
     return {
       ...base, ...s,
       tab: 0, lastPage: 0, // 앱을 켜면 항상 페이지 1
-      settings: { ...DEFAULT_SETTINGS, ...(s.settings || {}) },
+      settings: withDefaults(s.settings),
       pages: DEFAULT_PAGES.map((d, i) => ({ ...d, ...(s.pages?.[i] || {}), flash: undefined })),
     };
   } catch {
@@ -295,7 +309,7 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
     if (mode === 'replace') {
       return {
         bookmarks: d.bookmarks || [], memory: d.memory || [], highlights: d.highlights || {},
-        settings: { ...DEFAULT_SETTINGS, ...(d.settings || {}) },
+        settings: withDefaults(d.settings),
         pages: d.pages ? DEFAULT_PAGES.map((p, i) => ({ ...p, ...(d.pages[i] || {}) })) : s.pages,
       };
     }
