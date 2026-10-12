@@ -61,7 +61,7 @@ export default function SettingsView({ active }: { active: boolean }) {
       <div className="view-body settings">
 
         <section>
-          <h3>글자 크기</h3>
+          <h3>성경 글자 크기</h3>
           <div className="seg">
             {PRESETS.map(([label, size]) => (
               <button key={label} className={s.fontSize === size ? 'on' : ''} onClick={() => set('fontSize', size)}>{label}</button>
@@ -73,6 +73,14 @@ export default function SettingsView({ active }: { active: boolean }) {
             <span style={{ fontSize: 26 }}>가</span>
             <span className="val">{s.fontSize}</span>
           </div>
+          <h3>메뉴 · 설명 글씨 크기</h3>
+          <div className="slider-row">
+            <span style={{ fontSize: 14 }}>가</span>
+            <input type="range" min={14} max={26} step={1} value={s.uiFontSize} onChange={e => set('uiFontSize', +e.target.value)} />
+            <span style={{ fontSize: 26 }}>가</span>
+            <span className="val">{s.uiFontSize}</span>
+          </div>
+          <div className="row-end"><button onClick={() => set('uiFontSize', 20)}>20으로 되돌리기</button></div>
           <h3>줄 간격</h3>
           <div className="slider-row">
             <span>좁게</span>
@@ -133,7 +141,7 @@ export default function SettingsView({ active }: { active: boolean }) {
           <Toggle label="문장으로 찾기에 AI 설명 (인터넷 필요)" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
           <Toggle label="장 주제 보기 (AI · 인터넷 필요)" value={s.showTopic} onChange={v => set('showTopic', v)} />
           <Toggle label="단락 소제목 보기 (개역개정)" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
-          <div className="row"><span>페이지 개수 <span className="muted">(6개부터는 아래 버튼을 옆으로 밀어서)</span></span></div>
+          <div className="row"><span>페이지 개수 <span className="muted">(4개부터는 아래 페이지 버튼을 옆으로 밀어서)</span></span></div>
           <div className="seg small page-count">
             {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <button key={n} className={s.pageCount === n ? 'on' : ''} onClick={() => set('pageCount', n)}>{n}</button>)}
           </div>

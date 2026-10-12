@@ -33,6 +33,7 @@ export default function App() {
     const root = document.documentElement;
     root.dataset.theme = settings.theme;
     root.style.setProperty('--fs', settings.fontSize + 'px');
+    root.style.setProperty('--ui', (settings.uiFontSize || 20) + 'px');
     root.style.setProperty('--lh', String(settings.lineHeight));
     root.style.setProperty('--vg', settings.verseGap + 'px');
     root.style.setProperty('--side', settings.sideMargin + 'px');
@@ -40,7 +41,7 @@ export default function App() {
     root.dataset.vnum = settings.verseNumStyle;
     root.dataset.wrap = settings.wrapMode;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[settings.theme]);
-  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode]);
+  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode, settings.uiFontSize]);
 
   // 페이지 개수를 줄였을 때
   useEffect(() => {
@@ -69,11 +70,11 @@ export default function App() {
       </main>
 
       {/* 하단: 페이지마다 지금 읽는 곳(책 · 장 · 절)을 보여 줍니다 */}
-      <nav className={'bottom-nav' + (settings.pageCount > 5 ? ' many' : '')}>
+      <nav className={'bottom-nav' + (settings.pageCount > 3 ? ' many' : '')}>
         {pageIdx.map(i => {
           const p = pages[i];
           const name = BOOKS[p.book].name;
-          const fs = name.length >= 7 ? 10.5 : name.length >= 6 ? 11.5 : name.length >= 5 ? 12.5 : 13.5;
+          const fs = name.length >= 7 ? 'calc(var(--ui) * .86)' : name.length >= 6 ? 'calc(var(--ui) * .94)' : 'var(--ui)';
           return (
             <button key={i} className={'nav-btn pg' + (tab === i ? ' on' : '')} onClick={() => openTab(i as Tab)}>
               <span className="pg-book" style={{ fontSize: fs }}>{name}</span>

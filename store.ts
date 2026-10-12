@@ -53,6 +53,7 @@ export interface Settings {
   wrapMode: 'char' | 'word';  // 줄바꿈: 글자 단위(꽉 차게) / 낱말 단위
   showHeadings: boolean;      // 단락 소제목
   showTopic: boolean;         // 장 주제
+  uiFontSize: number;         // 성경 본문 말고 나머지 글씨 (메뉴·버튼·설명)
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -101,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrapMode: 'char',
   showHeadings: true,
   showTopic: true,
+  uiFontSize: 20,
 };
 
 const KEY = 'sk-bible-v1';
