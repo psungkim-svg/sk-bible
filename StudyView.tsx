@@ -3,7 +3,7 @@ import { BibleData } from './bible';
 import { goTo } from './store';
 import { parseRef } from './bible';
 import {
-  askLex, askTerm, askVerse, askVerseMore, cacheGet, cacheSet, COMMENTARY_CREDIT, getSources, getXrefs, LexAi, NS, passageLabel, Source, TermAi, VerseAi,
+  askLex, askTerm, askVerse, askVerseExtra, type VerseExtra, askVerseMore, cacheGet, cacheSet, COMMENTARY_CREDIT, getSources, getXrefs, LexAi, NS, passageLabel, Source, TermAi, VerseAi,
   XRef, xrefLabel, XREF_MB, xrefReady, xrefText,
 } from './study';
 import { getTranslation, TRANSLATIONS } from './translations';
@@ -164,15 +164,6 @@ function ExplainTab({ data, book, chapter, verses, onOriginal, onGo }: { data: B
                 ))}</>
             )}
 
-            {ai.bookflow && <><div className="ai-sec">🧭 책 전체 흐름 속에서</div><p className="ai-interp">{ai.bookflow}</p></>}
-
-            {ai.modern && ai.modern.length > 0 && (
-              <><div className="ai-sec">🎓 현대 학자들의 견해 <span className="ai-note">AI가 기억으로 정리 · 참고용</span></div>
-                {ai.modern.map((c, i) => (
-                  <div key={i} className="deep-box modern"><div className="deep-who">{c.who}</div><div>{c.point}</div></div>
-                ))}</>
-            )}
-
             {ai.links?.length > 0 && (
               <><div className="ai-sec">🔗 성경 연결</div>
                 {ai.links.map((l, i) => (
@@ -188,11 +179,32 @@ function ExplainTab({ data, book, chapter, verses, onOriginal, onGo }: { data: B
         )}
       </div>
 
+      {ai && <VerseExtraCard data={data} book={book} chapter={chapter} verses={verses} />}
       {ai && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={ai} update={update} onGo={onGo} />}
       {ai && <SourceView book={book} chapter={chapter} verses={verses} />}
 
       <p className="desc small">AI 해설은 참고용입니다. 성경 본문과 함께 분별하며 읽어 주세요.{ai?.sourceCount === 0 ? ' (이번 해설은 주석 자료를 받지 못해 AI 지식으로만 썼습니다)' : ''}<br />{COMMENTARY_CREDIT}</p>
     </>
+  );
+}
+
+/** 🧭 책 전체 흐름 + 🎓 현대 학자들의 견해 (주석 해설과 따로 불러옴) */
+function VerseExtraCard({ data, book, chapter, verses }: { data: BibleData; book: number; chapter: number; verses: number[] }) {
+  const key = `${book}:${chapter}:${verses.join(',')}`;
+  const { val: x, state, err, again } = useAi<VerseExtra>(NS.vextra, key, 80, s => askVerseExtra(data, book, chapter, verses, s));
+  return (
+    <div className="ai-card deep extra">
+      <AiStatus state={state} err={err} has={!!x} again={again} wait="책 흐름과 현대 학자들의 견해를 쓰는 중…" />
+      {x && <>
+        {x.bookflow && <><div className="ai-sec first">🧭 책 전체 흐름 속에서</div><p className="ai-interp">{x.bookflow}</p></>}
+        {x.modern?.length > 0 && (
+          <><div className="ai-sec">🎓 현대 학자들의 견해 <span className="ai-note">AI가 기억으로 정리 · 참고용</span></div>
+            {x.modern.map((c, i) => (
+              <div key={i} className="deep-box modern"><div className="deep-who">{c.who}</div><div>{c.point}</div></div>
+            ))}</>
+        )}
+      </>}
+    </div>
   );
 }
 

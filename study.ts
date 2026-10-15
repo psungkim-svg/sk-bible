@@ -26,8 +26,8 @@ export function cacheSet<T>(ns: string, k: string, v: T, max: number) {
   }
 }
 // v1.6: 깊은 해설로 바뀌어 예전 해설 저장분은 지움
-try { localStorage.removeItem('sk-ai-verse-v1'); localStorage.removeItem('sk-ai-verse-v2'); } catch { /* 무시 */ }
-export const NS = { verse: 'sk-ai-verse-v3', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
+try { ['sk-ai-verse-v1', 'sk-ai-verse-v2', 'sk-ai-verse-v3'].forEach(k => localStorage.removeItem(k)); } catch { /* 무시 */ }
+export const NS = { verse: 'sk-ai-verse-v4', vextra: 'sk-ai-vextra-v1', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
 
 async function ask<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
@@ -158,8 +158,6 @@ export interface VerseAi {
   questions: { q: string; a: string }[];             // 궁금증 풀이
   debates: { issue: string; views: { view: string; who?: string; why?: string }[] }[]; // 해석이 갈리는 곳
   links: { ref: string; why: string }[];             // 성경 연결
-  bookflow?: string;                                 // 책 전체 흐름 속에서
-  modern?: { who: string; point: string }[];         // 현대 학자들의 견해 (AI 기억 · 참고용)
   asks?: { q: string; a: string; refs?: string[] }[]; // 내가 더 물어본 것
   sourceCount?: number;
 }
@@ -182,6 +180,12 @@ export async function askVerse(data: BibleData, book: number, chapter: number, v
   onPhase?.(sources.length ? `주석 ${sources.length}권을 읽고 해설을 쓰는 중… (30초~1분)` : '해설을 쓰는 중… (주석 자료를 받지 못해 AI 지식으로만)');
   const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources, others }, signal);
   return { ...r, sourceCount: sources.length };
+}
+
+/** 🧭 책 전체 흐름 + 🎓 현대 학자들의 견해 — 주석 해설과 따로 (주석 해설이 짧아지지 않게) */
+export interface VerseExtra { bookflow: string; modern: { who: string; point: string }[] }
+export function askVerseExtra(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal) {
+  return ask<VerseExtra>({ step: 'verse-extra', ...verseInput(data, book, chapter, verses) }, signal);
 }
 
 /** 새번역 · 쉬운성경 본문 (AI가 번역 차이를 참고하도록, 못 받으면 빈 문자열) */

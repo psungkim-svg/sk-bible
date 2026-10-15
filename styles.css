@@ -575,3 +575,11 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 .tr-err { margin-top: 8px; }
 .ai-note { font-size: calc(var(--desc) * .75); font-weight: 600; color: var(--muted); background: var(--bg2); border-radius: 99px; padding: 1px 8px; margin-left: 4px; vertical-align: middle; white-space: nowrap; }
 .deep-box.modern { border-left: 3px solid var(--line); }
+/* 설명 줄 간격 (설정에서 조절, 기본 1.45) */
+.study .ai-card, .study .ai-card.deep .ai-intro, .study .deep-box, .study .deep-qa, .study .deep-link,
+.study .orig-kor, .study .src-text, .study .wcard, .study .desc, .bg-card, .bi-body, .ai-card { line-height: var(--dlh, 1.45); }
+.study .ai-interp { margin-bottom: 10px; }
+.study .deep-qa { margin-bottom: 12px; }
+.study .ai-sec { margin: 12px 0 5px; }
+.ai-card.deep.extra { padding-top: 4px; }
+.ai-sec.first { margin-top: 8px; }

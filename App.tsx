@@ -59,13 +59,14 @@ export default function App() {
     root.style.setProperty('--desc', (settings.descFontSize || 20) + 'px');
     root.style.setProperty('--title', (settings.titleFontSize || 22) + 'px');
     root.style.setProperty('--lh', String(settings.lineHeight));
+    root.style.setProperty('--dlh', String(settings.descLineHeight || 1.45));
     root.style.setProperty('--vg', settings.verseGap + 'px');
     root.style.setProperty('--side', settings.sideMargin + 'px');
     root.dataset.font = settings.fontFamily;
     root.dataset.vnum = settings.verseNumStyle;
     root.dataset.wrap = settings.wrapMode;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[settings.theme]);
-  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode, settings.menuFontSize, settings.descFontSize, settings.titleFontSize]);
+  }, [settings.theme, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.verseGap, settings.sideMargin, settings.verseNumStyle, settings.wrapMode, settings.menuFontSize, settings.descFontSize, settings.titleFontSize, settings.descLineHeight]);
 
   // 페이지 개수를 줄였을 때
   useEffect(() => {

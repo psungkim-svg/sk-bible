@@ -94,8 +94,15 @@ export default function SettingsView({ active }: { active: boolean }) {
             <span style={{ fontSize: 26 }}>가</span>
             <span className="val">{s.descFontSize}</span>
           </div>
-          <div className="row-end"><button onClick={() => { set('titleFontSize', 22); set('menuFontSize', 20); set('descFontSize', 20); }}>처음 크기로 (제목 22·메뉴 20·설명 20)</button></div>
-          <h3>줄 간격</h3>
+          <h3>설명 줄 간격 (해설·주석 등)</h3>
+          <div className="slider-row">
+            <span>좁게</span>
+            <input type="range" min={1.1} max={2.0} step={0.05} value={s.descLineHeight} onChange={e => set('descLineHeight', +e.target.value)} />
+            <span>넓게</span>
+            <span className="val">{s.descLineHeight.toFixed(2)}</span>
+          </div>
+          <div className="row-end"><button onClick={() => { set('titleFontSize', 22); set('menuFontSize', 20); set('descFontSize', 20); set('descLineHeight', 1.45); }}>처음 크기로 (제목 22·메뉴 20·설명 20·줄 간격 1.45)</button></div>
+          <h3>성경 줄 간격</h3>
           <div className="slider-row">
             <span>좁게</span>
             <input type="range" min={1.0} max={2.4} step={0.05} value={s.lineHeight} onChange={e => set('lineHeight', +e.target.value)} />

@@ -49,22 +49,28 @@ const VERSE_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
  "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열",
- "commentators":[{"who":"주석 이름 (주어진 이름 그대로)","point":"그 주석이 이 구절에서 실제로 강조하는 구체적 논점 3~6문장"}],
+ "commentators":[{"who":"주석 이름 (주어진 이름 그대로)","point":"그 주석이 이 구절에서 실제로 말하는 구체적 논점과 그 근거 4~8문장"}],
  "questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 3~7문장"}],
  "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 1~3문장"}]}],
- "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}],
- "bookflow":"책 전체 흐름 속에서: 이 구절이 그 책 전체의 구조와 주제 안에서 어떤 자리에 있고 어떤 역할을 하는지, 앞뒤 단락·책의 목적과 어떻게 이어지는지 3~5문장",
- "modern":[{"who":"현대 학자 이름 (예: D. A. 카슨)","point":"그 학자가 이 구절에 대해 펼친 것으로 잘 알려진 해석 2~4문장"}]}
+ "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
 규칙:
 - 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
 - 어느 구절에나 할 수 있는 일반론은 쓰지 마세요. 이 구절에만 해당하는 구체적인 내용(낱말, 문법, 역사적 사실, 앞뒤 흐름, 다른 구절과의 관계)을 씁니다.
-- commentators: 주어진 주석 가운데 이 구절에 대해 의미 있는 말이 있는 것만 3~6개. 각 주석의 특색 있는 주장이 드러나게 쓰세요. 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 주석 자료가 없으면 빈 배열.
+- commentators가 이 해설에서 가장 중요합니다. 주어진 주석 가운데 이 구절에 대해 의미 있는 말이 있는 것은 모두 (보통 4~7개) 다루세요. 각 주석이 이 구절에 대해 무엇을 주장하고 어떤 근거(원어 낱말, 문법, 다른 성경 구절, 역사적 사실, 논리)를 드는지 발췌 내용을 충실히 살려, 주석마다 서로 다른 특색이 드러나게 씁니다. 여러 주석이 같은 말을 하면 그 공통점을 밝히고 각자 더한 점을 쓰세요. 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 주석 자료가 없으면 빈 배열.
 - 영어 주석은 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
 - questions 3~5개. debates는 실제로 견해가 갈리는 곳만 0~3개 (각 2~3개 견해를 공정하게). links 3~6개.
-- bookflow: 주어진 '책 소개'(주제·구조)를 참고해, 이 구절이 책 전체에서 맡은 역할을 구체적으로 씁니다.
-- modern: 20세기 이후 이 책의 대표적인 현대 주석가·학자(예: D. A. 카슨, 더글러스 무, 크레이그 키너, 고든 웬함, 브루스 월키, 리처드 보컴, N. T. 라이트, 레온 모리스, F. F. 브루스 등 그 책을 실제로 연구한 학자) 가운데, 이 구절에 대한 견해를 확실히 아는 학자만 2~4명. 확실하지 않으면 학자 이름을 지어내지 말고 '현대 학자들 다수' 또는 '일부 현대 학자'로 쓰세요. 고전 주석 발췌와 같은 내용을 되풀이하지 말고 현대 연구(고고학, 고대 근동·제2성전기 유대교 배경, 원문 연구, 문학 구조)가 더해 준 통찰을 담으세요.
 - '다른 번역'(새번역·쉬운성경)이 주어지면, 개역개정과 뜻이 달라 보이는 곳이 있을 때 questions나 summary에서 그 차이와 이유를 설명하세요.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
+
+const VERSE_EXTRA_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도입니다.
+아래에 개역개정 구절, 앞뒤 본문, 그 책의 소개(주제·구조)가 주어집니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"bookflow":"이 구절이 그 책 전체의 구조와 주제 안에서 어떤 자리에 있고 어떤 역할을 하는지, 앞뒤 단락·책의 목적과 어떻게 이어지는지 3~5문장",
+ "modern":[{"who":"현대 학자 이름 (예: D. A. 카슨)","point":"그 학자가 이 구절에 대해 펼친 것으로 잘 알려진 해석 2~4문장"}]}
+규칙:
+- bookflow: 주어진 '책 소개'(주제·구조)를 참고해, 이 구절이 책 전체에서 맡은 역할을 구체적으로 씁니다.
+- modern: 20세기 이후 이 책의 대표적인 현대 주석가·학자(예: D. A. 카슨, 더글러스 무, 크레이그 키너, 고든 웬함, 브루스 월키, 리처드 보컴, N. T. 라이트, 레온 모리스, F. F. 브루스 등 그 책을 실제로 연구한 학자) 가운데, 이 구절에 대한 견해를 확실히 아는 학자만 2~4명. 확실하지 않으면 학자 이름을 지어내지 말고 '현대 학자들 다수' 또는 '일부 현대 학자'로 쓰세요. 고전 주석 발췌와 같은 내용을 되풀이하지 말고 현대 연구(고고학, 고대 근동·제2성전기 유대교 배경, 원문 연구, 문학 구조)가 더해 준 통찰을 담으세요.
+- 적용·교훈·기도는 쓰지 마세요. 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
 
 const VERSE_ASK_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 성도가 특정 성경 구절에 대해 질문합니다.
 주어진 구절, 앞뒤 본문, 고전 주석 발췌, 앞서 나눈 내용을 참고해 질문에 깊고 구체적으로 답하세요.
@@ -217,23 +223,32 @@ async function handleAsk(request, env) {
     }
     if (body.step === 'verse') {
       const out = await runLLM(env, VERSE_PROMPT,
-        `구절: ${q}\n${clip(body.text, 3000)}\n\n다른 번역:\n${clip(body.others, 3000) || '(없음)'}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n책 소개:\n${clip(body.bookinfo, 1200) || '(없음)'}\n\n고전 주석 발췌(영어 원문):\n${sourcesText(body.sources)}`,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n다른 번역:\n${clip(body.others, 3000) || '(없음)'}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n고전 주석 발췌(영어 원문):\n${sourcesText(body.sources)}`,
         { max_tokens: 12000 });
       const arr = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
       const res = {
         summary: clip(out.summary, 1200),
         background: clip(out.background, 1500),
-        commentators: arr(out.commentators, 7).map(c => ({ who: clip(c?.who, 40), point: clip(c?.point, 1500) })).filter(c => c.who && c.point),
+        commentators: arr(out.commentators, 8).map(c => ({ who: clip(c?.who, 40), point: clip(c?.point, 2500) })).filter(c => c.who && c.point),
         questions: arr(out.questions, 6).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 2000) })).filter(x => x.q && x.a),
         debates: arr(out.debates, 4).map(d => ({
           issue: clip(d?.issue, 300),
           views: arr(d?.views, 4).map(v => ({ view: clip(v?.view, 800), who: clip(v?.who, 80), why: clip(v?.why, 800) })).filter(v => v.view),
         })).filter(d => d.issue && d.views.length),
         links: arr(out.links, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref),
-        bookflow: clip(out.bookflow, 1500),
-        modern: arr(out.modern, 5).map(c => ({ who: clip(c?.who, 40), point: clip(c?.point, 1200) })).filter(c => c.who && c.point),
       };
       if (!res.summary && !res.questions.length) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
+      return json(res);
+    }
+    if (body.step === 'verse-extra') {
+      const out = await runLLM(env, VERSE_EXTRA_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n책 소개:\n${clip(body.bookinfo, 1200) || '(없음)'}`,
+        { max_tokens: 5000 });
+      const res = {
+        bookflow: clip(out.bookflow, 1500),
+        modern: (Array.isArray(out.modern) ? out.modern : []).slice(0, 5).map(c => ({ who: clip(c?.who, 40), point: clip(c?.point, 1200) })).filter(c => c.who && c.point),
+      };
+      if (!res.bookflow && !res.modern.length) return json({ error: 'AI가 내용을 쓰지 못했습니다' }, 502);
       return json(res);
     }
     if (body.step === 'verse-ask') {

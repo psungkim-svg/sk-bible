@@ -56,6 +56,7 @@ export interface Settings {
   menuFontSize: number;       // 메뉴·버튼·제목줄 글씨
   descFontSize: number;       // 설명 글씨 (AI 해설·소개·낱말 풀이 등)
   titleFontSize: number;      // 본문 위 성경 제목 (예: 전도서 8장)
+  descLineHeight: number;     // 설명(해설·주석 등) 줄 간격
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -117,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   menuFontSize: 20,
   descFontSize: 20,
   titleFontSize: 22,
+  descLineHeight: 1.45,
 };
 
 const KEY = 'sk-bible-v1';
