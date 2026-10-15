@@ -6,6 +6,7 @@ import {
   askLex, askTerm, askVerse, askVerseMore, cacheGet, cacheSet, COMMENTARY_CREDIT, getSources, getXrefs, LexAi, NS, passageLabel, Source, TermAi, VerseAi,
   XRef, xrefLabel, XREF_MB, xrefReady, xrefText,
 } from './study';
+import { getTranslation, TRANSLATIONS } from './translations';
 import { useBackClose } from './utils';
 
 type TabId = 'explain' | 'xref' | 'lex';
@@ -38,7 +39,9 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
       </div>
       <div className="study-body">
         <div className="orig-kor">
+          <div className="tr-name">개역개정</div>
           {v.map(x => <div key={x}><b className="vref">{x}</b> {ch[x - 1]}</div>)}
+          <TrCompare book={book} chapter={chapter} verses={v} />
         </div>
         {/* 세 탭을 모두 만들어 두고 보이는 것만 바꿈 (AI는 미리 함께 요청 → 기다림이 짧아짐) */}
         <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v} onOriginal={onOriginal}
@@ -47,6 +50,40 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
         <div hidden={tab !== 'lex'}><LexTab data={data} book={book} chapter={chapter} verses={v} /></div>
       </div>
     </div>
+  );
+}
+
+/* ---------- 번역 비교: 새번역 · 쉬운성경 (인터넷 될 때만) ---------- */
+function TrCompare({ book, chapter, verses }: { book: number; chapter: number; verses: number[] }) {
+  const [rows, setRows] = useState<Record<string, string[] | null>>({});
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setRows({}); setErr('');
+    if (!navigator.onLine) { setRows(Object.fromEntries(TRANSLATIONS.map(t => [t.id, null]))); setErr('인터넷이 연결되면 새번역 · 쉬운성경이 함께 보입니다'); return; }
+    TRANSLATIONS.forEach(t => {
+      getTranslation(t.id, book, chapter, verses)
+        .then(r => { if (alive) setRows(o => ({ ...o, [t.id]: r })); })
+        .catch(() => { if (alive) { setRows(o => ({ ...o, [t.id]: null })); setErr('인터넷이 연결되면 새번역 · 쉬운성경이 함께 보입니다'); } });
+    });
+    return () => { alive = false; };
+  }, [book, chapter, verses.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <>
+      {TRANSLATIONS.map(t => {
+        const r = rows[t.id];
+        if (r === null) return null;
+        return (
+          <div key={t.id} className="tr-block">
+            <div className="tr-name">{t.name}</div>
+            {r === undefined
+              ? <div className="muted">불러오는 중…</div>
+              : verses.map((x, i) => r[i] ? <div key={x}><b className="vref">{x}</b> {r[i]}</div> : null)}
+          </div>
+        );
+      })}
+      {err && <div className="muted tr-err">{err}</div>}
+    </>
   );
 }
 
@@ -124,6 +161,15 @@ function ExplainTab({ data, book, chapter, verses, onOriginal, onGo }: { data: B
                       </div>
                     ))}
                   </div>
+                ))}</>
+            )}
+
+            {ai.bookflow && <><div className="ai-sec">🧭 책 전체 흐름 속에서</div><p className="ai-interp">{ai.bookflow}</p></>}
+
+            {ai.modern && ai.modern.length > 0 && (
+              <><div className="ai-sec">🎓 현대 학자들의 견해 <span className="ai-note">AI가 기억으로 정리 · 참고용</span></div>
+                {ai.modern.map((c, i) => (
+                  <div key={i} className="deep-box modern"><div className="deep-who">{c.who}</div><div>{c.point}</div></div>
                 ))}</>
             )}
 

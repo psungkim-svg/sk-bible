@@ -5,6 +5,8 @@
    ================================================================ */
 import type { BibleData } from './bible';
 import { BOOKS } from './books';
+import { BOOK_INFO } from './bookinfo';
+import { getTranslation, TRANSLATIONS } from './translations';
 
 /* ---------- 폰에 저장하는 AI 결과 (종류별 개수 제한) ---------- */
 function cacheLoad<T>(ns: string): Record<string, T> {
@@ -24,8 +26,8 @@ export function cacheSet<T>(ns: string, k: string, v: T, max: number) {
   }
 }
 // v1.6: 깊은 해설로 바뀌어 예전 해설 저장분은 지움
-try { localStorage.removeItem('sk-ai-verse-v1'); } catch { /* 무시 */ }
-export const NS = { verse: 'sk-ai-verse-v2', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
+try { localStorage.removeItem('sk-ai-verse-v1'); localStorage.removeItem('sk-ai-verse-v2'); } catch { /* 무시 */ }
+export const NS = { verse: 'sk-ai-verse-v3', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
 
 async function ask<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
@@ -156,6 +158,8 @@ export interface VerseAi {
   questions: { q: string; a: string }[];             // 궁금증 풀이
   debates: { issue: string; views: { view: string; who?: string; why?: string }[] }[]; // 해석이 갈리는 곳
   links: { ref: string; why: string }[];             // 성경 연결
+  bookflow?: string;                                 // 책 전체 흐름 속에서
+  modern?: { who: string; point: string }[];         // 현대 학자들의 견해 (AI 기억 · 참고용)
   asks?: { q: string; a: string; refs?: string[] }[]; // 내가 더 물어본 것
   sourceCount?: number;
 }
@@ -166,16 +170,29 @@ function verseInput(data: BibleData, book: number, chapter: number, verses: numb
   const from = Math.max(1, v[0] - 5), to = Math.min(ch.length, v[v.length - 1] + 4);
   const around: string[] = [];
   for (let i = from; i <= to; i++) around.push(`${i} ${ch[i - 1]}`);
-  return { q: passageLabel(book, chapter, v), text: v.map(x => `${x} ${ch[x - 1]}`).join('\n'), around: around.join('\n') };
+  const bi = BOOK_INFO[book];
+  const bookinfo = bi ? `${BOOKS[book].name} — 주제: ${bi.t}\n요약: ${bi.s}\n구조: ${bi.o.split('|').join(' / ')}` : '';
+  return { q: passageLabel(book, chapter, v), text: v.map(x => `${x} ${ch[x - 1]}`).join('\n'), around: around.join('\n'), bookinfo };
 }
 
 export async function askVerse(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal, onPhase?: (p: string) => void) {
   onPhase?.('주석 자료를 모으는 중…');
-  const sources = await getSources(book, chapter, verses);
+  const [sources, others] = await Promise.all([getSources(book, chapter, verses), otherTranslations(book, chapter, verses)]);
   if (signal?.aborted) throw new Error('취소됨');
   onPhase?.(sources.length ? `주석 ${sources.length}권을 읽고 해설을 쓰는 중… (30초~1분)` : '해설을 쓰는 중… (주석 자료를 받지 못해 AI 지식으로만)');
-  const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources }, signal);
+  const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources, others }, signal);
   return { ...r, sourceCount: sources.length };
+}
+
+/** 새번역 · 쉬운성경 본문 (AI가 번역 차이를 참고하도록, 못 받으면 빈 문자열) */
+async function otherTranslations(book: number, chapter: number, verses: number[]) {
+  const v = [...verses].sort((a, b) => a - b);
+  const timeout = new Promise<null>(r => setTimeout(() => r(null), 6000));
+  const parts = await Promise.all(TRANSLATIONS.map(async t => {
+    const r = await Promise.race([getTranslation(t.id, book, chapter, v).catch(() => null), timeout]);
+    return r ? `[${t.name}] ` + v.map((x, i) => `${x} ${r[i]}`).join(' ') : '';
+  }));
+  return parts.filter(Boolean).join('\n');
 }
 
 /** 해설을 본 뒤 그 구절에 대해 더 묻기 */
