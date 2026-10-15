@@ -547,3 +547,25 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 .seg button, .seg.small button { white-space: normal; word-break: keep-all; height: auto; min-height: 40px; line-height: 1.15; padding: 4px 2px; }
 .seg.small button { min-height: 34px; }
 .study-tabs button { white-space: nowrap; font-size: min(var(--menu), 5.2vw); }
+/* ================= 깊은 해설 ================= */
+.ai-card.deep .ai-intro { font-weight: 600; line-height: 1.7; }
+.deep-box { background: var(--bg2); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; line-height: 1.7; }
+.deep-who { font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+.deep-qa { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; margin: 0 0 14px; line-height: 1.7; }
+.deep-q { font-weight: 700; margin-bottom: 4px; }
+.deep-issue { font-weight: 700; margin-bottom: 6px; }
+.deep-view { padding: 6px 0; border-top: 1px dashed var(--line); }
+.deep-view:first-of-type { border-top: 0; }
+.deep-holder { color: var(--accent); font-weight: 600; }
+.deep-why { color: var(--muted); margin-top: 2px; }
+.deep-link { padding: 8px 0; border-bottom: 1px dashed var(--line); line-height: 1.6; }
+.deep-link:last-of-type { border-bottom: 0; }
+.ref-link { color: var(--accent); font-weight: 700; text-decoration: underline; margin-right: 6px; }
+.ref-plain { color: var(--accent); margin-right: 6px; }
+.deep-refs { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.ask-more { align-items: stretch; }
+.ask-more textarea { flex: 1; min-width: 0; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); padding: 8px 10px; font-size: var(--desc); line-height: 1.5; resize: vertical; outline: none; }
+.ask-more textarea:focus { border-color: var(--accent); }
+.src-toggle { width: 100%; text-align: left; font-weight: 700; color: var(--accent); padding: 2px 0; }
+.src-card { padding-bottom: 12px; }
+.src-text { white-space: pre-wrap; font-family: Georgia, "Times New Roman", serif; line-height: 1.6; word-break: normal; }

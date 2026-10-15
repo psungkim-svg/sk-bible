@@ -44,16 +44,42 @@ const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니�
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"topic":"장 주제"}`;
 
-const VERSE_PROMPT = `당신은 성경을 깊이 아는 친절한 목회자이자 성경 교사입니다.
-주어진 개역개정 구절을 일반 성도가 잘 이해하도록 한국어로 해설하세요.
+const VERSE_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 뻔한 설교 요약이 아니라 "이 구절이 정확히 무슨 뜻이고, 왜 그렇게 읽는지"를 깊고 구체적으로 알고 싶어 합니다.
+아래에 개역개정 구절, 앞뒤 본문, 그리고 고전 주석들의 영어 원문 발췌가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"summary":"이 구절의 핵심을 한 문장으로",
- "context":"앞뒤 문맥: 이 말씀이 어떤 흐름 속에서 누구에게 왜 주어졌는지 2~4문장",
- "background":"당시 역사·문화·지리 배경 중 이해에 꼭 필요한 것 2~4문장",
- "meaning":"구절의 뜻을 풀어 설명 3~6문장 (중요한 낱말의 의미, 다른 성경 구절과의 연결 포함)",
- "apply":["오늘 나의 삶에 주는 적용 1문장","적용 2","적용 3"],
- "pray":"이 말씀으로 드리는 짧은 기도 한 문장"}
-규칙: 존댓말(~입니다)로 씁니다. 성경 본문에 근거하고, 확실하지 않은 내용은 지어내지 마세요. 특정 교단에 치우친 주장은 피합니다.`;
+{"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
+ "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열",
+ "commentators":[{"who":"주석 이름 (주어진 이름 그대로)","point":"그 주석이 이 구절에서 실제로 강조하는 구체적 논점 3~6문장"}],
+ "questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 3~7문장"}],
+ "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 1~3문장"}]}],
+ "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
+규칙:
+- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
+- 어느 구절에나 할 수 있는 일반론은 쓰지 마세요. 이 구절에만 해당하는 구체적인 내용(낱말, 문법, 역사적 사실, 앞뒤 흐름, 다른 구절과의 관계)을 씁니다.
+- commentators: 주어진 주석 가운데 이 구절에 대해 의미 있는 말이 있는 것만 3~6개. 각 주석의 특색 있는 주장이 드러나게 쓰세요. 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 주석 자료가 없으면 빈 배열.
+- 영어 주석은 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
+- questions 3~5개. debates는 실제로 견해가 갈리는 곳만 0~3개 (각 2~3개 견해를 공정하게). links 3~6개.
+- 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
+
+const VERSE_ASK_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 성도가 특정 성경 구절에 대해 질문합니다.
+주어진 구절, 앞뒤 본문, 고전 주석 발췌, 앞서 나눈 내용을 참고해 질문에 깊고 구체적으로 답하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"answer":"질문에 대한 답 4~10문장. 근거(본문, 다른 성경 구절, 주석 이름)를 밝히며 구체적으로","refs":["근거로 든 성경 구절 (예: 롬 5:8)"]}
+규칙: 적용·교훈·기도는 쓰지 말고 질문에 대한 답만 합니다. 견해가 갈리면 여러 견해를 공정하게 소개합니다. 주석에 없는 말을 주석 이름으로 지어내지 말고, 모르는 것은 모른다고 하세요. 존댓말로 씁니다.`;
+
+/** 폰이 보내 준 주석 발췌를 정리 (최대 8개, 합계 약 14000자) */
+function sourcesText(list) {
+  let total = 0;
+  const out = [];
+  for (const s of (Array.isArray(list) ? list : []).slice(0, 8)) {
+    const who = clip(s?.who, 40).trim();
+    const text = clip(s?.text, 2400).trim();
+    if (!who || !text || total + text.length > 14000) continue;
+    total += text.length;
+    out.push(`[${who}]\n${text}`);
+  }
+  return out.length ? out.join('\n\n') : '(주석 자료 없음)';
+}
 
 const LEX_PROMPT = `당신은 한국어 성경(개역개정) 교사입니다.
 주어진 구절에서
@@ -135,7 +161,7 @@ function isSquashed(t) {
   return t.replace(/[^가-힣]/g, '').length > 12 && !/\s/.test(t);
 }
 
-async function runLLM(env, system, user) {
+async function runLLM(env, system, user, opt = {}) {
   let lastErr = new Error('AI를 사용할 수 없습니다');
   for (const model of MODELS) {
     try {
@@ -144,7 +170,7 @@ async function runLLM(env, system, user) {
           { role: 'system', content: system },
           { role: 'user', content: user },
         ],
-        max_tokens: 6000,
+        max_tokens: opt.max_tokens || 6000,
         temperature: 0.2,
       });
       const out = parseJson(extractText(r));
@@ -186,13 +212,32 @@ async function handleAsk(request, env) {
     }
     if (body.step === 'verse') {
       const out = await runLLM(env, VERSE_PROMPT,
-        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}`);
-      return json({
-        summary: clip(out.summary, 400), context: clip(out.context, 1200), background: clip(out.background, 1200),
-        meaning: clip(out.meaning, 2000),
-        apply: (Array.isArray(out.apply) ? out.apply : []).slice(0, 5).map(a => clip(a, 400)).filter(Boolean),
-        pray: clip(out.pray, 400),
-      });
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n고전 주석 발췌(영어 원문):\n${sourcesText(body.sources)}`,
+        { max_tokens: 10000 });
+      const arr = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+      const res = {
+        summary: clip(out.summary, 1200),
+        background: clip(out.background, 1500),
+        commentators: arr(out.commentators, 7).map(c => ({ who: clip(c?.who, 40), point: clip(c?.point, 1500) })).filter(c => c.who && c.point),
+        questions: arr(out.questions, 6).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 2000) })).filter(x => x.q && x.a),
+        debates: arr(out.debates, 4).map(d => ({
+          issue: clip(d?.issue, 300),
+          views: arr(d?.views, 4).map(v => ({ view: clip(v?.view, 800), who: clip(v?.who, 80), why: clip(v?.why, 800) })).filter(v => v.view),
+        })).filter(d => d.issue && d.views.length),
+        links: arr(out.links, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref),
+      };
+      if (!res.summary && !res.questions.length) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
+      return json(res);
+    }
+    if (body.step === 'verse-ask') {
+      const question = clip(body.question, 500).trim();
+      if (!question) return json({ error: '질문이 비어 있습니다' }, 400);
+      const out = await runLLM(env, VERSE_ASK_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n앞서 나눈 내용:\n${clip(body.brief, 2500) || '(없음)'}\n\n고전 주석 발췌(영어 원문):\n${sourcesText(body.sources)}\n\n질문: ${question}`,
+        { max_tokens: 6000 });
+      const answer = clip(out.answer, 4000).trim();
+      if (!answer) return json({ error: 'AI가 답을 쓰지 못했습니다' }, 502);
+      return json({ answer, refs: (Array.isArray(out.refs) ? out.refs : []).slice(0, 8).map(r => clip(r, 40)).filter(Boolean) });
     }
     if (body.step === 'lexicon') {
       const out = await runLLM(env, LEX_PROMPT, `구절: ${q}\n${clip(body.text, 3000)}`);

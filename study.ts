@@ -23,7 +23,9 @@ export function cacheSet<T>(ns: string, k: string, v: T, max: number) {
     try { localStorage.setItem(ns, JSON.stringify(c)); } catch { /* 포기 */ }
   }
 }
-export const NS = { verse: 'sk-ai-verse-v1', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
+// v1.6: 깊은 해설로 바뀌어 예전 해설 저장분은 지움
+try { localStorage.removeItem('sk-ai-verse-v1'); } catch { /* 무시 */ }
+export const NS = { verse: 'sk-ai-verse-v2', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
 
 async function ask<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
@@ -46,26 +48,141 @@ export function passageLabel(book: number, chapter: number, verses: number[]) {
   return `${short(book)} ${chapter}:${vs}`;
 }
 
-/* ---------- ① 구절 해설 ---------- */
-export interface VerseAi {
-  summary: string;          // 한 줄 핵심
-  context: string;          // 앞뒤 문맥
-  background: string;       // 당시 배경
-  meaning: string;          // 뜻 풀이
-  apply: string[];          // 오늘의 적용
-  pray?: string;            // 한 줄 기도
+/* ---------- ① 구절 깊은 해설 (고전 주석 근거) ----------
+   주석 자료: HelloAO Free Use Bible API (bible.helloao.org)
+   - 칼빈 · 매튜 헨리 · 존 길 · JFB · 아담 클라크 · 카일·델리취: 공개 저작물
+   - 틴데일 스터디 노트: CC BY-SA 4.0
+   서버(Worker)는 CPU 시간이 짧아서, 큰 주석 파일은 폰에서 받아 필요한 부분만 잘라 보냅니다. */
+const USFM = ['GEN','EXO','LEV','NUM','DEU','JOS','JDG','RUT','1SA','2SA','1KI','2KI','1CH','2CH','EZR','NEH','EST','JOB','PSA','PRO','ECC','SNG','ISA','JER','LAM','EZK','DAN','HOS','JOL','AMO','OBA','JON','MIC','NAM','HAB','ZEP','HAG','ZEC','MAL',
+  'MAT','MRK','LUK','JHN','ACT','ROM','1CO','2CO','GAL','EPH','PHP','COL','1TH','2TH','1TI','2TI','TIT','PHM','HEB','JAS','1PE','2PE','1JN','2JN','3JN','JUD','REV'];
+export const COMMENTARIES: { id: string; name: string; max: number; ot?: boolean }[] = [
+  { id: 'tyndale', name: '틴데일 스터디 노트', max: 1800 },
+  { id: 'john-calvin', name: '칼빈 주석', max: 2200 },
+  { id: 'matthew-henry', name: '매튜 헨리 주석', max: 2000 },
+  { id: 'jamieson-fausset-brown', name: 'JFB 주석', max: 1700 },
+  { id: 'john-gill', name: '존 길 주석', max: 1700 },
+  { id: 'adam-clarke', name: '아담 클라크 주석', max: 1500 },
+  { id: 'keil-delitzsch', name: '카일·델리취 주석', max: 2000, ot: true },
+];
+export const COMMENTARY_CREDIT = '주석 자료: 칼빈 · 매튜 헨리 · 존 길 · JFB · 아담 클라크 · 카일·델리취 (공개 저작물), 틴데일 스터디 노트 (CC BY-SA 4.0) — HelloAO Free Use Bible API 제공';
+
+export interface Source { who: string; text: string }
+interface CItem { type?: string; number?: number; content?: unknown[] }
+const chapCache = new Map<string, Promise<CItem[] | null>>();
+
+function fetchChapter(id: string, book: number, chapter: number): Promise<CItem[] | null> {
+  const k = `${id}/${USFM[book]}/${chapter}`;
+  let p = chapCache.get(k);
+  if (!p) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 15000);
+    p = fetch(`https://bible.helloao.org/api/c/${k}.json`, { signal: ctl.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => (Array.isArray(j?.chapter?.content) ? j.chapter.content as CItem[] : null))
+      .catch(() => null)
+      .finally(() => clearTimeout(t));
+    p.then(v => { if (!v) chapCache.delete(k); });
+    chapCache.set(k, p);
+  }
+  return p;
 }
-export function askVerse(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal) {
+
+function itemText(it: CItem) {
+  return (it.content || []).map(x => (typeof x === 'string' ? x : (x as { text?: string })?.text || '')).join('\n');
+}
+
+/** 주석 한 장에서 고른 절에 해당하는 부분만 잘라 냄 */
+export function excerpt(items: CItem[], chapter: number, verses: number[], max: number): string {
+  const vs = items.filter(i => typeof i.number === 'number').sort((a, b) => a.number! - b.number!);
+  if (!vs.length) return '';
+  const a = verses[0], b = verses[verses.length - 1];
+  // 이 절을 덮는 단락(시작 절 ≤ a 중 가장 뒤) + 범위 안에서 시작하는 단락
+  let cover = -1;
+  vs.forEach((it, i) => { if (it.number! <= a) cover = i; });
+  const picked = vs.filter((it, i) => i === cover || (it.number! > a && it.number! <= b));
+  let text = picked.map(itemText).join('\n\n')
+    .replace(/\[\d+\]/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length <= max) return text;
+  // 긴 단락이면 그 절을 다루는 곳을 찾아 그 주변만
+  // ① "16. For God so loved…"처럼 절 번호로 시작하는 줄 — 본문 나열이 아닌 해설(다음 번호까지 가장 긴 것)
+  const lines = [...text.matchAll(/(?:^|\n)\s*(\d{1,3})\.\s/g)].map(m => ({ n: +m[1], i: m.index! }));
+  // (칼빈은 라틴어 본문 → 영어 본문 → 해설 순서라서, 충분히 긴 것 중 마지막을 고름)
+  let best = -1, gap = 0, lastLong = -1;
+  lines.forEach((l, k) => {
+    if (l.n !== a) return;
+    const g = (lines[k + 1]?.i ?? text.length) - l.i;
+    if (g > gap) { gap = g; best = l.i; }
+    if (g >= 400) lastLong = l.i;
+  });
+  if (lastLong >= 0) best = lastLong;
+  let start = best;
+  // 이 절에서 바로 시작하는 해설이면 앞부분 그대로
+  if (start < 0 && cover >= 0 && vs[cover].number === a) start = 0;
+  // ② "v. 16", "Joh 3:16" 같은 표시
+  if (start < 0) {
+    const m2 = new RegExp(`(?:\\bv\\.|\\bver\\.|\\bverse)\\s*${a}\\b|\\b${chapter}:${a}\\b`, 'i').exec(text);
+    if (m2) start = Math.max(0, m2.index - 100);
+  }
+  // ③ 가장 가까운 앞 절 표시 (3절 이내) — 없으면 이 주석은 이 절을 다루지 않는 것으로 보고 뺌
+  if (start < 0) {
+    let near = -1, at = -1;
+    for (const m of text.matchAll(new RegExp(`\\b${chapter}:(\\d+)\\b|\\bv(?:er)?\\.\\s*(\\d+)\\b`, 'g'))) {
+      const n = +(m[1] || m[2]);
+      if (n <= a && n >= near) { near = n; at = m.index!; }
+    }
+    if (near < 0 || a - near > 3) return '';
+    start = Math.max(0, at - 100);
+  }
+  return (start > 0 ? '… ' : '') + text.slice(start, start + max).trim() + ' …';
+}
+
+/** 고른 절에 대한 고전 주석 발췌 (받을 수 있는 것만) */
+export async function getSources(book: number, chapter: number, verses: number[]): Promise<Source[]> {
+  if (!navigator.onLine) return [];
+  const v = [...verses].sort((x, y) => x - y);
+  const list = COMMENTARIES.filter(c => !c.ot || book < 39);
+  const res = await Promise.all(list.map(async c => {
+    const items = await fetchChapter(c.id, book, chapter);
+    const text = items ? excerpt(items, chapter, v, c.max) : '';
+    return text.length > 40 ? { who: c.name, text } : null;
+  }));
+  return res.filter((x): x is Source => !!x);
+}
+
+export interface VerseAi {
+  summary: string;                                   // 핵심
+  background?: string;                               // 꼭 필요한 구체적 배경
+  commentators: { who: string; point: string }[];    // 주석가들은 이렇게 봅니다
+  questions: { q: string; a: string }[];             // 궁금증 풀이
+  debates: { issue: string; views: { view: string; who?: string; why?: string }[] }[]; // 해석이 갈리는 곳
+  links: { ref: string; why: string }[];             // 성경 연결
+  asks?: { q: string; a: string; refs?: string[] }[]; // 내가 더 물어본 것
+  sourceCount?: number;
+}
+
+function verseInput(data: BibleData, book: number, chapter: number, verses: number[]) {
   const ch = data[book][chapter - 1];
   const v = [...verses].sort((a, b) => a - b);
-  const from = Math.max(1, v[0] - 4), to = Math.min(ch.length, v[v.length - 1] + 3);
+  const from = Math.max(1, v[0] - 5), to = Math.min(ch.length, v[v.length - 1] + 4);
   const around: string[] = [];
   for (let i = from; i <= to; i++) around.push(`${i} ${ch[i - 1]}`);
-  return ask<VerseAi>({
-    step: 'verse', q: passageLabel(book, chapter, v),
-    text: v.map(x => `${x} ${ch[x - 1]}`).join('\n'),
-    around: around.join('\n'),
-  }, signal);
+  return { q: passageLabel(book, chapter, v), text: v.map(x => `${x} ${ch[x - 1]}`).join('\n'), around: around.join('\n') };
+}
+
+export async function askVerse(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal, onPhase?: (p: string) => void) {
+  onPhase?.('주석 자료를 모으는 중…');
+  const sources = await getSources(book, chapter, verses);
+  if (signal?.aborted) throw new Error('취소됨');
+  onPhase?.(sources.length ? `주석 ${sources.length}권을 읽고 해설을 쓰는 중… (30초~1분)` : '해설을 쓰는 중… (주석 자료를 받지 못해 AI 지식으로만)');
+  const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources }, signal);
+  return { ...r, sourceCount: sources.length };
+}
+
+/** 해설을 본 뒤 그 구절에 대해 더 묻기 */
+export async function askVerseMore(data: BibleData, book: number, chapter: number, verses: number[], question: string, prev: VerseAi | undefined, signal?: AbortSignal) {
+  const sources = await getSources(book, chapter, verses);
+  const brief = prev ? [prev.summary, ...(prev.asks || []).slice(-3).map(x => `Q: ${x.q}\nA: ${x.a}`)].join('\n').slice(0, 2500) : '';
+  return ask<{ answer: string; refs: string[] }>({ step: 'verse-ask', ...verseInput(data, book, chapter, verses), question, brief, sources }, signal);
 }
 
 /* ---------- ④ 낱말 풀이 + ⑤ 인물·지명 ---------- */
