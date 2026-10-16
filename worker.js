@@ -69,12 +69,20 @@ const DEEP_RULES = `- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야
 - 영어 자료는 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
 
-const VERSE_CORE_PROMPT = `${DEEP_ROLE}
-아래에 개역개정 구절, 다른 번역, 앞뒤 본문이 주어집니다.
+const VERSE_CORE_PROMPT = `Reasoning: low
+${DEEP_ROLE}
+아래에 개역개정 구절과 앞뒤 본문이 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
- "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열",
- "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
+ "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열"}
+규칙:
+${DEEP_RULES}`;
+
+const VERSE_LINKS_PROMPT = `Reasoning: low
+${DEEP_ROLE}
+아래에 개역개정 구절과 앞뒤 본문이 주어집니다. 이 구절과 깊이 이어지는 다른 성경 구절을 고르세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
 규칙:
 ${DEEP_RULES}
 - links 3~6개.`;
@@ -90,7 +98,8 @@ ${DEEP_RULES}
 - 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다.
 - 다른 번역이 개역개정과 뜻이 달라 보이는 곳이 있으면, 그 차이와 이유를 questions에서 설명하세요.`;
 
-const VERSE_COMM_PROMPT = `${DEEP_ROLE}
+const VERSE_COMM_PROMPT = `Reasoning: low
+${DEEP_ROLE}
 아래에 개역개정 구절과, 고전 주석 하나의 영어 원문 발췌가 주어집니다.
 이 주석이 이 구절에 대해 실제로 말하는 내용을 한국어로 정리하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
@@ -100,7 +109,8 @@ ${DEEP_RULES}
 - 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다.
 - 발췌가 이 구절과 상관없는 내용뿐이면 {"point":""} 를 출력하세요.`;
 
-const VERSE_EXTRA_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도입니다.
+const VERSE_EXTRA_PROMPT = `Reasoning: low
+당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도입니다.
 아래에 개역개정 구절, 앞뒤 본문, 그 책의 소개(주제·구조)가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"bookflow":"이 구절이 그 책 전체의 구조와 주제 안에서 어떤 자리에 있고 어떤 역할을 하는지, 앞뒤 단락·책의 목적과 어떻게 이어지는지 3~5문장",
@@ -281,7 +291,7 @@ async function handleAsk(request, env) {
     if (body.step === 'verse-core') {
       const out = await runLLM(env, VERSE_CORE_PROMPT,
         `구절: ${q}\n${clip(body.text, 3000)}\n\n다른 번역:\n${clip(body.others, 3000) || '(없음)'}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}`,
-        { max_tokens: 5000 });
+        { max_tokens: 3000 });
       const res = {
         summary: clip(out.summary, 1200),
         background: clip(out.background, 1500),
@@ -289,6 +299,13 @@ async function handleAsk(request, env) {
       };
       if (!res.summary) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
       return json(res);
+    }
+    if (body.step === 'verse-links') {
+      const out = await runLLM(env, VERSE_LINKS_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}`,
+        { max_tokens: 3000 });
+      const links = (Array.isArray(out.links) ? out.links : []).slice(0, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref);
+      return json({ links });
     }
     if (body.step === 'verse-qa') {
       const out = await runLLM(env, VERSE_QA_PROMPT,

@@ -20,6 +20,9 @@ interface Props {
 export default function StudyView({ data, book, chapter, verses, page, onClose, initialTab }: Props) {
   const v = [...verses].sort((a, b) => a - b).slice(0, 12);
   const [tab, setTab] = useState<TabId>(initialTab || 'explain');
+  // 낱말·인물은 그 탭을 처음 열 때 요청 (해설 AI와 자리 다툼을 줄여 해설이 빨라짐)
+  const [seen, setSeen] = useState<Record<string, boolean>>({ [initialTab || 'explain']: true });
+  useEffect(() => { setSeen(o => (o[tab] ? o : { ...o, [tab]: true })); }, [tab]);
   useBackClose(true, onClose);
   const label = passageLabel(book, chapter, v);
   const ch = data[book][chapter - 1];
@@ -44,11 +47,11 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
           <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
           {tab === 'explain' && <TrCompare book={book} chapter={chapter} verses={v} />}
         </div>
-        {/* 세 탭을 모두 만들어 두고 보이는 것만 바꿈 (AI는 미리 함께 요청 → 기다림이 짧아짐) */}
+        {/* 해설 · 관련 구절은 미리 만들어 두고, 낱말 탭은 처음 열 때 만듦 */}
         <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v}
           onGo={r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); }} /></div>
         <div hidden={tab !== 'xref'}><XrefTab data={data} book={book} chapter={chapter} verses={v} onOpen={x => { onClose(); goTo(page, { book: x.book, chapter: x.chapter, verse: x.verse }); }} /></div>
-        <div hidden={tab !== 'lex'}><LexTab data={data} book={book} chapter={chapter} verses={v} /></div>
+        <div hidden={tab !== 'lex'}>{seen.lex && <LexTab data={data} book={book} chapter={chapter} verses={v} />}</div>
       </div>
     </div>
   );
@@ -161,7 +164,7 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
   const ai = prog ? prog.ai : val;
   const busy = state === 'loading';
   const commWait = prog ? prog.comm.filter(c => c.state === 'wait').map(c => c.who) : [];
-  const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (prog.core === 'fail' ? 1 : 0) + (prog.qa === 'fail' ? 1 : 0) : 0;
+  const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (prog.core === 'fail' ? 1 : 0) + (prog.qa === 'fail' ? 1 : 0) + (prog.links === 'fail' ? 1 : 0) : 0;
   return (
     <>
       <div className="ai-card deep">
@@ -205,6 +208,7 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
                 ))}</>
             )}
 
+            {prog && prog.links === 'wait' && <><div className="ai-sec">🔗 성경 연결</div><Waiting text="이어지는 성경 구절을 찾는 중…" /></>}
             {ai.links?.length > 0 && (
               <><div className="ai-sec">🔗 성경 연결</div>
                 {ai.links.map((l, i) => (
@@ -220,7 +224,7 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
         )}
       </div>
 
-      <VerseExtraCard data={data} book={book} chapter={chapter} verses={verses} />
+      {val && !busy && <VerseExtraCard data={data} book={book} chapter={chapter} verses={verses} />}
       {val && !busy && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={val} update={update} onGo={onGo} />}
       {(val || prog) && <SourceView book={book} chapter={chapter} verses={verses} />}
 

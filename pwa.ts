@@ -26,6 +26,13 @@ function check() {
 }
 
 export function startPwa() {
+  // 새 서비스 워커가 "업데이트 버튼을 아는 앱이냐"고 물으면 대답 (대답이 있으면 저절로 바꾸지 않고 버튼을 기다림)
+  try {
+    navigator.serviceWorker?.addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.type === 'SK_PING') e.ports?.[0]?.postMessage('button');
+    });
+    navigator.serviceWorker?.startMessages();
+  } catch { /* 무시 */ }
   // v1.6.3: 원어설명을 없앴으므로 폰에 받아 둔 원어 자료를 지워 공간 확보
   try { if ('caches' in window) caches.delete('sk-orig'); } catch { /* 무시 */ }
   updateSW = registerSW({
@@ -76,6 +83,11 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.6.5', [
+    '깊은 해설 더 빠르게: AI 요청을 중요한 순서대로 한 번에 4개까지만 (한꺼번에 보내면 줄을 서서 오히려 느려짐)',
+    '요약 · 배경을 가장 먼저 짧게 → 처음 내용이 빨리 보임 · 낱말 풀이는 그 탭을 열 때만',
+    '예전 버전(v1.6.4 이하)에서도 이번 한 번은 저절로 새 버전으로 넘어오게 (다음부터는 업데이트 버튼)',
+  ]],
   ['1.6.4', [
     '업데이트: 저절로 바뀌지 않고, 새 버전이 있으면 아래에 "눌러서 업데이트" 버튼이 나옴',
     '펼치기 화살표를 꽉 찬 삼각형(▶ ▼)으로',

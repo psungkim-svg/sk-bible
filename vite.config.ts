@@ -12,7 +12,8 @@ const BUILD_TIME = new Date().toISOString();
 */
 const ASSETS: Record<string, string> = {
   'data/nkrv.json': 'nkrv.json',
-  'data/xref.json': 'xref.json',   // 관련 구절 (OpenBible.info, CC BY)
+  'data/xref.json': 'xref.json',
+  'sw-extra.js': 'sw-extra.js',   // 서비스 워커 덧붙임 (업데이트 버튼)   // 관련 구절 (OpenBible.info, CC BY)
   'icons/icon-192.png': 'icon-192.png',
   'icons/icon-512.png': 'icon-512.png',
   'icons/maskable-512.png': 'maskable-512.png',
@@ -79,7 +80,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,json}'],
-        globIgnores: ['version.json', 'data/tr-*.json'],
+        globIgnores: ['version.json', 'data/tr-*.json', 'sw-extra.js'],
+        importScripts: ['/sw-extra.js'],
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
