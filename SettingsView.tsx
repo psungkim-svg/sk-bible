@@ -60,8 +60,9 @@ export default function SettingsView({ active }: { active: boolean }) {
       <header className="vhead"><h1>설정</h1><ToolIcons /></header>
       <div className="view-body settings">
 
-        <section>
-          <h3>성경 글자 크기</h3>
+        <section className="set-box">
+          <h2 className="set-title">📖 성경 본문</h2>
+          <h3>글자 크기</h3>
           <div className="seg">
             {PRESETS.map(([label, size]) => (
               <button key={label} className={s.fontSize === size ? 'on' : ''} onClick={() => set('fontSize', size)}>{label}</button>
@@ -73,36 +74,14 @@ export default function SettingsView({ active }: { active: boolean }) {
             <span style={{ fontSize: 26 }}>가</span>
             <span className="val">{s.fontSize}</span>
           </div>
-          <h3>성경 제목 크기 (예: 전도서 8장)</h3>
+          <h3>제목 크기 (예: 전도서 8장)</h3>
           <div className="slider-row">
             <span style={{ fontSize: 14 }}>가</span>
             <input type="range" min={14} max={44} step={1} value={s.titleFontSize} onChange={e => set('titleFontSize', +e.target.value)} />
             <span style={{ fontSize: 26 }}>가</span>
             <span className="val">{s.titleFontSize}</span>
           </div>
-          <h3>메뉴 글씨 (버튼·탭·페이지)</h3>
-          <div className="slider-row">
-            <span style={{ fontSize: 14 }}>가</span>
-            <input type="range" min={14} max={28} step={1} value={s.menuFontSize} onChange={e => set('menuFontSize', +e.target.value)} />
-            <span style={{ fontSize: 26 }}>가</span>
-            <span className="val">{s.menuFontSize}</span>
-          </div>
-          <h3>설명 글씨 (AI 해설·소개 등)</h3>
-          <div className="slider-row">
-            <span style={{ fontSize: 14 }}>가</span>
-            <input type="range" min={14} max={28} step={1} value={s.descFontSize} onChange={e => set('descFontSize', +e.target.value)} />
-            <span style={{ fontSize: 26 }}>가</span>
-            <span className="val">{s.descFontSize}</span>
-          </div>
-          <h3>설명 줄 간격 (해설·주석 등)</h3>
-          <div className="slider-row">
-            <span>좁게</span>
-            <input type="range" min={1.1} max={2.0} step={0.05} value={s.descLineHeight} onChange={e => set('descLineHeight', +e.target.value)} />
-            <span>넓게</span>
-            <span className="val">{s.descLineHeight.toFixed(2)}</span>
-          </div>
-          <div className="row-end"><button onClick={() => { set('titleFontSize', 22); set('menuFontSize', 20); set('descFontSize', 20); set('descLineHeight', 1.45); }}>처음 크기로 (제목 22·메뉴 20·설명 20·줄 간격 1.45)</button></div>
-          <h3>성경 줄 간격</h3>
+          <h3>줄 간격</h3>
           <div className="slider-row">
             <span>좁게</span>
             <input type="range" min={1.0} max={2.4} step={0.05} value={s.lineHeight} onChange={e => set('lineHeight', +e.target.value)} />
@@ -133,10 +112,49 @@ export default function SettingsView({ active }: { active: boolean }) {
             <button className={s.wrapMode === 'char' ? 'on' : ''} onClick={() => set('wrapMode', 'char')}>글자 단위 (꽉 차게)</button>
             <button className={s.wrapMode === 'word' ? 'on' : ''} onClick={() => set('wrapMode', 'word')}>낱말 단위</button>
           </div>
+          <h3>글꼴</h3>
+          <div className="seg">
+            <button className={s.fontFamily === 'sans' ? 'on' : ''} onClick={() => set('fontFamily', 'sans')}>고딕체</button>
+            <button className={s.fontFamily === 'serif' ? 'on serif' : 'serif'} onClick={() => set('fontFamily', 'serif')}>명조체</button>
+          </div>
           <div className="preview verses">
             <p className="verse"><span className="vnum">16</span>하나님이 세상을 이처럼 사랑하사 독생자를 주셨으니 이는 그를 믿는 자마다 멸망하지 않고 영생을 얻게 하려 하심이라</p>
             <p className="verse"><span className="vnum">17</span>하나님이 그 아들을 세상에 보내신 것은 세상을 심판하려 하심이 아니요 그로 말미암아 세상이 구원을 받게 하려 하심이라</p>
           </div>
+          <div className="row-end"><button onClick={() => { set('fontSize', 19); set('titleFontSize', 22); set('lineHeight', 1.75); set('verseGap', 6); }}>처음대로 (글자 19·제목 22·줄 간격 1.75·절 간격 6)</button></div>
+        </section>
+
+        <section className="set-box">
+          <h2 className="set-title">💡 해설 · 설명</h2>
+          <p className="desc small">AI 해설, 주석, 관련 구절, 장 배경, 책 소개 같은 설명 글</p>
+          <h3>글씨 크기</h3>
+          <div className="slider-row">
+            <span style={{ fontSize: 14 }}>가</span>
+            <input type="range" min={14} max={28} step={1} value={s.descFontSize} onChange={e => set('descFontSize', +e.target.value)} />
+            <span style={{ fontSize: 26 }}>가</span>
+            <span className="val">{s.descFontSize}</span>
+          </div>
+          <h3>줄 간격</h3>
+          <div className="slider-row">
+            <span>좁게</span>
+            <input type="range" min={1.1} max={2.0} step={0.05} value={s.descLineHeight} onChange={e => set('descLineHeight', +e.target.value)} />
+            <span>넓게</span>
+            <span className="val">{s.descLineHeight.toFixed(2)}</span>
+          </div>
+          <div className="row-end"><button onClick={() => { set('descFontSize', 20); set('descLineHeight', 1.45); }}>처음대로 (글씨 20·줄 간격 1.45)</button></div>
+        </section>
+
+        <section className="set-box">
+          <h2 className="set-title">🔘 메뉴</h2>
+          <p className="desc small">버튼, 탭, 아래 페이지 버튼, 제목줄 글씨</p>
+          <h3>글씨 크기</h3>
+          <div className="slider-row">
+            <span style={{ fontSize: 14 }}>가</span>
+            <input type="range" min={14} max={28} step={1} value={s.menuFontSize} onChange={e => set('menuFontSize', +e.target.value)} />
+            <span style={{ fontSize: 26 }}>가</span>
+            <span className="val">{s.menuFontSize}</span>
+          </div>
+          <div className="row-end"><button onClick={() => set('menuFontSize', 20)}>처음대로 (20)</button></div>
         </section>
 
         <section>
@@ -147,11 +165,6 @@ export default function SettingsView({ active }: { active: boolean }) {
                 <span className="ico">{ico}</span>{label}
               </button>
             ))}
-          </div>
-          <h3>글꼴</h3>
-          <div className="seg">
-            <button className={s.fontFamily === 'sans' ? 'on' : ''} onClick={() => set('fontFamily', 'sans')}>고딕체</button>
-            <button className={s.fontFamily === 'serif' ? 'on serif' : 'serif'} onClick={() => set('fontFamily', 'serif')}>명조체</button>
           </div>
         </section>
 

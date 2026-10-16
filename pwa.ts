@@ -10,6 +10,8 @@ export const BUILD_TIME = __BUILD_TIME__; // ISO 시각
 let reg: ServiceWorkerRegistration | undefined;
 
 export function startPwa() {
+  // v1.6.3: 원어설명을 없앴으므로 폰에 받아 둔 원어 자료를 지워 공간 확보
+  try { if ('caches' in window) caches.delete('sk-orig'); } catch { /* 무시 */ }
   registerSW({
     immediate: true,
     onRegisteredSW(_url, r) {
@@ -49,6 +51,12 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.6.3', [
+    '펼치기 화살표: 접혀 있으면 옆(▶), 누르면 아래(▼)로 돌며 펼쳐짐 (배경 보기 · 책 소개 · 주석 원문)',
+    '아래 메뉴줄: 원어설명을 없애고 그 자리에 "관련 구절" — 누르면 바로 관련 구절 목록',
+    '해설 화면 번역 비교: 새번역(표준새번역 개정판) + BSB(영어)로, 간격을 촘촘하게',
+    '설정: 성경 본문 · 해설 · 메뉴를 각각 따로 상자로 나눔',
+  ]],
   ['1.6.2', [
     '주석을 가장 중요하게: 주석가 견해를 의미 있는 주석은 모두(보통 4~7개), 각 4~8문장으로 근거와 함께 더 자세히',
     '"책 전체 흐름"과 "현대 학자들의 견해"는 따로 불러와서 주석 해설이 짧아지지 않게',

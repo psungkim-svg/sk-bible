@@ -7,8 +7,7 @@ import {
 } from './store';
 import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
-import ToolIcons from './ToolIcons';
-import OriginalView from './OriginalView';
+import ToolIcons, { Chev } from './ToolIcons';
 import StudyView from './StudyView';
 import { BackgroundCard, BookIntro } from './ChapterInfo';
 import { ensureTopic, getHeads, Head, TopicState, useTopic } from './headings';
@@ -32,8 +31,8 @@ export default function Reader({ index, data, active }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
   const [flashV, setFlashV] = useState<number | undefined>();
-  const [origOpen, setOrigOpen] = useState<number[] | null>(null);
   const [studyOpen, setStudyOpen] = useState<number[] | null>(null);
+  const [studyTab, setStudyTab] = useState<'explain' | 'xref'>('explain');
   const [bgOpen, setBgOpen] = useState(false);
   useEffect(() => { setBgOpen(false); }, [book, chapter]);
   // 장 맨 위: (1장이면) 책 소개 + 장 주제를 누르면 펼쳐지는 배경 카드
@@ -343,8 +342,8 @@ export default function Reader({ index, data, active }: Props) {
               <button onClick={doCopy}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
               <button onClick={doBookmark}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
               <button onClick={() => setHlOpen(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
-              <button onClick={() => { setOrigOpen(sortedSel); clearSel(); }}><span className="orig-ico">א Ω</span>원어설명</button>
-              <button onClick={() => { setStudyOpen(sortedSel); clearSel(); }}><Ico d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />해설</button>
+              <button onClick={() => { setStudyTab('xref'); setStudyOpen(sortedSel); clearSel(); }}><Ico d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />관련 구절</button>
+              <button onClick={() => { setStudyTab('explain'); setStudyOpen(sortedSel); clearSel(); }}><Ico d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />해설</button>
               <button onClick={doMemorize}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
               <button onClick={doShare}><Ico d="M12 3v13M7 8l5-5 5 5M5 14v7h14v-7" />공유</button>
             </div>
@@ -353,13 +352,10 @@ export default function Reader({ index, data, active }: Props) {
       )}
 
       {studyOpen && (
-        <StudyView data={data} book={book} chapter={chapter} verses={studyOpen} page={index}
-          onClose={() => setStudyOpen(null)} onOriginal={() => { const v = studyOpen; setStudyOpen(null); setOrigOpen(v); }} />
+        <StudyView data={data} book={book} chapter={chapter} verses={studyOpen} page={index} initialTab={studyTab}
+          onClose={() => setStudyOpen(null)} />
       )}
 
-      {origOpen && (
-        <OriginalView data={data} book={book} chapter={chapter} verses={origOpen} onClose={() => setOrigOpen(null)} />
-      )}
 
       {pickerOpen && (
         <BookPicker
@@ -408,7 +404,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
       {showTopic && topic?.status === 'ready' && (onTopicClick
-        ? <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{topic.topic}<span className="topic-more">{bgOpen ? '접기 ▲' : '배경 보기 ▼'}</span></button>
+        ? <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{topic.topic}<span className="topic-more">배경 보기 <Chev open={!!bgOpen} /></span></button>
         : <div className="chap-topic">{topic.topic}</div>)}
       {showTopic && topic?.status === 'loading' && <div className="chap-topic pending">장 주제를 만드는 중…</div>}
       {showTopic && topic?.status === 'fail' && onRetryTopic && (

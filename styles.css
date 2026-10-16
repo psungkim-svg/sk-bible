@@ -569,10 +569,12 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 .src-toggle { width: 100%; text-align: left; font-weight: 700; color: var(--accent); padding: 2px 0; }
 .src-card { padding-bottom: 12px; }
 .src-text { white-space: pre-wrap; font-family: Georgia, "Times New Roman", serif; line-height: 1.6; word-break: normal; }
-/* 번역 비교 */
-.tr-name { display: inline-block; font-size: calc(var(--menu) * .8); font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 1px 10px; margin: 0 0 4px; }
-.tr-block { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
-.tr-err { margin-top: 8px; }
+/* 번역 비교: 이름표를 글 앞에 붙여 촘촘하게 */
+.orig-kor { padding: 10px 12px; }
+.tr-row { margin: 0; }
+.tr-row + .tr-row, .tr-row + .tr-err { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.tr-name { display: inline-block; font-size: calc(var(--desc) * .72); font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 0 8px; margin-right: 6px; line-height: 1.6; vertical-align: 1px; }
+.tr-err { font-size: calc(var(--desc) * .85); }
 .ai-note { font-size: calc(var(--desc) * .75); font-weight: 600; color: var(--muted); background: var(--bg2); border-radius: 99px; padding: 1px 8px; margin-left: 4px; vertical-align: middle; white-space: nowrap; }
 .deep-box.modern { border-left: 3px solid var(--line); }
 /* 설명 줄 간격 (설정에서 조절, 기본 1.45) */
@@ -583,3 +585,7 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 .study .ai-sec { margin: 12px 0 5px; }
 .ai-card.deep.extra { padding-top: 4px; }
 .ai-sec.first { margin-top: 8px; }
+/* 펼치기 화살표: 접힘 ▶ → 펼침 ▼ */
+.chev { display: inline-block; vertical-align: -0.12em; transition: transform .2s ease; }
+.chev.open { transform: rotate(90deg); }
+.chap-topic .topic-more { display: flex; align-items: center; gap: 4px; }

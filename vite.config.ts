@@ -19,10 +19,8 @@ const ASSETS: Record<string, string> = {
   'icons/apple-touch-icon.png': 'apple-touch-icon.png',
   'icons/favicon.png': 'favicon.png',
 };
-// 원어 자료 (필요할 때만 내려받음)
-for (let i = 1; i <= 9; i++) ASSETS[`data/orig-${i}.json`] = `orig-${i}.json`;
-// 번역 비교 (새번역 · 쉬운성경, 인터넷 될 때만 받음)
-for (let i = 1; i <= 6; i++) { ASSETS[`data/tr-new-${i}.json`] = `tr-new-${i}.json`; ASSETS[`data/tr-easy-${i}.json`] = `tr-easy-${i}.json`; }
+// 번역 비교 (새번역, 인터넷 될 때만 받음 · BSB는 helloao에서)
+for (let i = 1; i <= 6; i++) { ASSETS[`data/tr-new-${i}.json`] = `tr-new-${i}.json`; }
 
 function flatAssets(): Plugin {
   return {
@@ -81,15 +79,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,json}'],
-        globIgnores: ['version.json', 'data/orig-*.json', 'data/tr-*.json'],
-        runtimeCaching: [
-          {
-            // 원어 자료: 한 번 받으면 폰에 저장해 두고 인터넷 없이 사용
-            urlPattern: ({ url }) => url.pathname.startsWith('/data/orig-'),
-            handler: 'CacheFirst',
-            options: { cacheName: 'sk-orig', expiration: { maxEntries: 12 } },
-          },
-        ],
+        globIgnores: ['version.json', 'data/tr-*.json'],
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,

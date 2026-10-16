@@ -8,17 +8,18 @@ import {
 } from './study';
 import { getTranslation, TRANSLATIONS } from './translations';
 import { useBackClose } from './utils';
+import { Chev } from './ToolIcons';
 
 type TabId = 'explain' | 'xref' | 'lex';
 interface Props {
   data: BibleData; book: number; chapter: number; verses: number[]; page: number;
-  onClose: () => void; onOriginal: () => void;
+  onClose: () => void; initialTab?: TabId;
 }
 
 /** 절을 고르고 "해설"을 누르면 나오는 화면: AI 해설 · 관련 구절 · 낱말과 인물 */
-export default function StudyView({ data, book, chapter, verses, page, onClose, onOriginal }: Props) {
+export default function StudyView({ data, book, chapter, verses, page, onClose, initialTab }: Props) {
   const v = [...verses].sort((a, b) => a - b).slice(0, 12);
-  const [tab, setTab] = useState<TabId>('explain');
+  const [tab, setTab] = useState<TabId>(initialTab || 'explain');
   useBackClose(true, onClose);
   const label = passageLabel(book, chapter, v);
   const ch = data[book][chapter - 1];
@@ -38,13 +39,13 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
         <button className={tab === 'lex' ? 'on' : ''} onClick={() => setTab('lex')}>📚 낱말·인물</button>
       </div>
       <div className="study-body">
+        {/* 번역 비교(새번역 · BSB)는 해설 탭에서만, 관련 구절 · 낱말 탭은 개역개정만 짧게 */}
         <div className="orig-kor">
-          <div className="tr-name">개역개정</div>
-          {v.map(x => <div key={x}><b className="vref">{x}</b> {ch[x - 1]}</div>)}
-          <TrCompare book={book} chapter={chapter} verses={v} />
+          <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
+          {tab === 'explain' && <TrCompare book={book} chapter={chapter} verses={v} />}
         </div>
         {/* 세 탭을 모두 만들어 두고 보이는 것만 바꿈 (AI는 미리 함께 요청 → 기다림이 짧아짐) */}
-        <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v} onOriginal={onOriginal}
+        <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v}
           onGo={r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); }} /></div>
         <div hidden={tab !== 'xref'}><XrefTab data={data} book={book} chapter={chapter} verses={v} onOpen={x => { onClose(); goTo(page, { book: x.book, chapter: x.chapter, verse: x.verse }); }} /></div>
         <div hidden={tab !== 'lex'}><LexTab data={data} book={book} chapter={chapter} verses={v} /></div>
@@ -53,35 +54,42 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
   );
 }
 
-/* ---------- 번역 비교: 새번역 · 쉬운성경 (인터넷 될 때만) ---------- */
+/* ---------- 번역 비교: 새번역(표준새번역 개정판) · BSB (인터넷 될 때만) ---------- */
+const TR_OFF = '인터넷이 연결되면 새번역 · BSB가 함께 보입니다';
+
+/** 번역 한 줄: 이름표를 첫 줄 앞에 붙여서 자리를 줄임 */
+function TrRow({ name, note, verses, texts }: { name: string; note?: string; verses: number[]; texts: string[] | undefined }) {
+  const one = verses.length === 1;
+  return (
+    <div className="tr-row">
+      <span className="tr-name" title={note}>{name}</span>
+      {!texts
+        ? <span className="muted"> 불러오는 중…</span>
+        : verses.map((x, i) => texts[i]
+          ? <span key={x} className={one ? '' : 'tr-v'}>{!one && <b className="vref">{x}</b>}{!one && ' '}{texts[i]} </span>
+          : null)}
+    </div>
+  );
+}
+
 function TrCompare({ book, chapter, verses }: { book: number; chapter: number; verses: number[] }) {
   const [rows, setRows] = useState<Record<string, string[] | null>>({});
   const [err, setErr] = useState('');
   useEffect(() => {
     let alive = true;
     setRows({}); setErr('');
-    if (!navigator.onLine) { setRows(Object.fromEntries(TRANSLATIONS.map(t => [t.id, null]))); setErr('인터넷이 연결되면 새번역 · 쉬운성경이 함께 보입니다'); return; }
+    if (!navigator.onLine) { setRows(Object.fromEntries(TRANSLATIONS.map(t => [t.id, null]))); setErr(TR_OFF); return; }
     TRANSLATIONS.forEach(t => {
       getTranslation(t.id, book, chapter, verses)
         .then(r => { if (alive) setRows(o => ({ ...o, [t.id]: r })); })
-        .catch(() => { if (alive) { setRows(o => ({ ...o, [t.id]: null })); setErr('인터넷이 연결되면 새번역 · 쉬운성경이 함께 보입니다'); } });
+        .catch(() => { if (alive) { setRows(o => ({ ...o, [t.id]: null })); setErr(TR_OFF); } });
     });
     return () => { alive = false; };
   }, [book, chapter, verses.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
-      {TRANSLATIONS.map(t => {
-        const r = rows[t.id];
-        if (r === null) return null;
-        return (
-          <div key={t.id} className="tr-block">
-            <div className="tr-name">{t.name}</div>
-            {r === undefined
-              ? <div className="muted">불러오는 중…</div>
-              : verses.map((x, i) => r[i] ? <div key={x}><b className="vref">{x}</b> {r[i]}</div> : null)}
-          </div>
-        );
-      })}
+      {TRANSLATIONS.map(t => rows[t.id] === null ? null
+        : <TrRow key={t.id} name={t.name} note={t.note} verses={verses} texts={rows[t.id] || undefined} />)}
       {err && <div className="muted tr-err">{err}</div>}
     </>
   );
@@ -122,7 +130,7 @@ function RefLink({ text, data, onGo }: { text: string; data: BibleData; onGo: Go
   return r ? <button className="ref-link" onClick={() => onGo(r)}>{text}</button> : <b className="ref-plain">{text}</b>;
 }
 
-function ExplainTab({ data, book, chapter, verses, onOriginal, onGo }: { data: BibleData; book: number; chapter: number; verses: number[]; onOriginal: () => void; onGo: Go }) {
+function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; book: number; chapter: number; verses: number[]; onGo: Go }) {
   const key = `${book}:${chapter}:${verses.join(',')}`;
   const { val: ai, state, err, phase, update, again } = useAi<VerseAi>(NS.verse, key, 80, (s, ph) => askVerse(data, book, chapter, verses, s, ph));
   return (
@@ -172,7 +180,6 @@ function ExplainTab({ data, book, chapter, verses, onOriginal, onGo }: { data: B
             )}
 
             <div className="ai-foot">
-              <button onClick={onOriginal}>א Ω 원어설명</button>
               {state === 'loading' ? <span className="muted">{phase || '다시 쓰는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
             </div>
           </>
@@ -254,7 +261,7 @@ function SourceView({ book, chapter, verses }: { book: number; chapter: number; 
   }, [open, list, book, chapter, verses]);
   return (
     <div className="ai-card src-card">
-      <button className="src-toggle" onClick={() => setOpen(o => !o)}>📜 주석 원문 보기 (영어 발췌) {open ? '▲' : '▼'}</button>
+      <button className="src-toggle" onClick={() => setOpen(o => !o)}>📜 주석 원문 보기 (영어 발췌) <Chev open={open} /></button>
       {open && !list && <div className="busy" style={{ padding: '8px 0' }}><div className="spinner small" /> 받는 중…</div>}
       {open && list && list.length === 0 && <div className="ai-err">주석 자료를 받지 못했습니다.</div>}
       {open && list?.map((s, i) => (

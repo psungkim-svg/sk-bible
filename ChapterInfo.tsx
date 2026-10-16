@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Chev } from './ToolIcons';
 import { BibleData } from './bible';
 import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
@@ -75,7 +76,7 @@ export function BookIntro({ data, book, compact, onGo }: { data: BibleData; book
       <button className="bi-head" onClick={() => setOpen(o => !o)}>
         <span className="bi-icon">📘</span>
         <span className="bi-title"><b>{BOOKS[book].name}</b> 소개<span className="bi-theme">{info.t}</span></span>
-        <span className="bi-arrow">{open ? '▲' : '▼'}</span>
+        <span className="bi-arrow"><Chev open={open} /></span>
       </button>
       {open && (
         <div className="bi-body">

@@ -55,7 +55,7 @@ export function passageLabel(book: number, chapter: number, verses: number[]) {
    - 칼빈 · 매튜 헨리 · 존 길 · JFB · 아담 클라크 · 카일·델리취: 공개 저작물
    - 틴데일 스터디 노트: CC BY-SA 4.0
    서버(Worker)는 CPU 시간이 짧아서, 큰 주석 파일은 폰에서 받아 필요한 부분만 잘라 보냅니다. */
-const USFM = ['GEN','EXO','LEV','NUM','DEU','JOS','JDG','RUT','1SA','2SA','1KI','2KI','1CH','2CH','EZR','NEH','EST','JOB','PSA','PRO','ECC','SNG','ISA','JER','LAM','EZK','DAN','HOS','JOL','AMO','OBA','JON','MIC','NAM','HAB','ZEP','HAG','ZEC','MAL',
+export const USFM = ['GEN','EXO','LEV','NUM','DEU','JOS','JDG','RUT','1SA','2SA','1KI','2KI','1CH','2CH','EZR','NEH','EST','JOB','PSA','PRO','ECC','SNG','ISA','JER','LAM','EZK','DAN','HOS','JOL','AMO','OBA','JON','MIC','NAM','HAB','ZEP','HAG','ZEC','MAL',
   'MAT','MRK','LUK','JHN','ACT','ROM','1CO','2CO','GAL','EPH','PHP','COL','1TH','2TH','1TI','2TI','TIT','PHM','HEB','JAS','1PE','2PE','1JN','2JN','3JN','JUD','REV'];
 export const COMMENTARIES: { id: string; name: string; max: number; ot?: boolean }[] = [
   { id: 'tyndale', name: '틴데일 스터디 노트', max: 1800 },
