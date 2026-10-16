@@ -1,4 +1,4 @@
-/* 앱 자동 업데이트 + 버전 정보 */
+/* 앱 업데이트 (새 버전이 있으면 버튼 표시 → 누르면 업데이트) + 버전 정보 */
 import { registerSW } from 'virtual:pwa-register';
 
 declare const __APP_VERSION__: string;
@@ -8,19 +8,37 @@ export const APP_VERSION = __APP_VERSION__;
 export const BUILD_TIME = __BUILD_TIME__; // ISO 시각
 
 let reg: ServiceWorkerRegistration | undefined;
+let updateSW: ((reload?: boolean) => Promise<void>) | undefined;
+
+/* 새 버전 준비 상태 (화면에 버튼 표시용) */
+let ready = false;
+let readyVersion = '';
+const subs = new Set<() => void>();
+function setReady(v: boolean) { ready = v; subs.forEach(f => f()); }
+export function subscribeUpdate(f: () => void) { subs.add(f); return () => { subs.delete(f); }; }
+export function updateReady() { return ready; }
+export function updateVersion() { return readyVersion; }
+
+function check() {
+  if (!navigator.onLine) return;
+  reg?.update().catch(() => {});
+  fetchLatest().then(l => { if (l && l.buildTime !== BUILD_TIME) { readyVersion = l.version; subs.forEach(f => f()); } });
+}
 
 export function startPwa() {
   // v1.6.3: 원어설명을 없앴으므로 폰에 받아 둔 원어 자료를 지워 공간 확보
   try { if ('caches' in window) caches.delete('sk-orig'); } catch { /* 무시 */ }
-  registerSW({
+  updateSW = registerSW({
     immediate: true,
+    // 새 버전을 다 받아 두면 → 화면에 "업데이트" 버튼 (자동으로 바꾸지 않음)
+    onNeedRefresh() {
+      fetchLatest().then(l => { if (l) readyVersion = l.version; setReady(true); });
+    },
     onRegisteredSW(_url, r) {
       reg = r;
-      // 앱을 다시 볼 때마다 새 버전이 있는지 확인 → 있으면 자동으로 바뀝니다
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && navigator.onLine) r?.update().catch(() => {});
-      });
-      setInterval(() => { if (navigator.onLine) r?.update().catch(() => {}); }, 60 * 60 * 1000);
+      // 앱을 다시 볼 때마다, 그리고 1시간마다 새 버전이 있는지 확인
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      setInterval(check, 60 * 60 * 1000);
     },
   });
 }
@@ -36,11 +54,18 @@ export async function fetchLatest(): Promise<{ version: string; buildTime: strin
   }
 }
 
-/** 새 버전 받기 */
+/** 새 버전으로 바꾸기 (버튼을 눌렀을 때) */
 export async function applyUpdate() {
+  if (ready && updateSW) {
+    await updateSW(true);                 // 받아 둔 새 버전으로 바꾸고 새로 고침
+    setTimeout(() => location.reload(), 3000);
+    return;
+  }
+  // 아직 다 받지 않았으면: 받고 → 준비되면 바로 바꿈
   try { await reg?.update(); } catch { /* */ }
-  // 자동으로 새로 고쳐지지 않으면 직접 새로 고침
-  setTimeout(() => location.reload(), 2500);
+  const w = reg?.waiting;
+  if (w) { w.postMessage({ type: 'SKIP_WAITING' }); setTimeout(() => location.reload(), 1500); return; }
+  setTimeout(() => location.reload(), 4000);
 }
 
 export function formatBuildTime(iso: string) {
@@ -51,6 +76,11 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.6.4', [
+    '업데이트: 저절로 바뀌지 않고, 새 버전이 있으면 아래에 "눌러서 업데이트" 버튼이 나옴',
+    '펼치기 화살표를 꽉 찬 삼각형(▶ ▼)으로',
+    '깊은 해설이 빨라짐: 요약 · 주석가별 · 궁금증 풀이를 동시에 써서, 끝난 부분부터 바로 보여 줌',
+  ]],
   ['1.6.3', [
     '펼치기 화살표: 접혀 있으면 옆(▶), 누르면 아래(▼)로 돌며 펼쳐짐 (배경 보기 · 책 소개 · 주석 원문)',
     '아래 메뉴줄: 원어설명을 없애고 그 자리에 "관련 구절" — 누르면 바로 관련 구절 목록',

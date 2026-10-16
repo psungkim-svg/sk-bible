@@ -62,6 +62,44 @@ const VERSE_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치
 - '다른 번역'(새번역·영어 BSB)이 주어지면, 개역개정과 뜻이 달라 보이는 곳이 있을 때 questions나 summary에서 그 차이와 이유를 설명하세요.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
 
+/* ---- v1.6.4: 깊은 해설을 여러 요청으로 나눠 동시에 (빨라짐) ---- */
+const DEEP_ROLE = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 뻔한 설교 요약이 아니라 "이 구절이 정확히 무슨 뜻이고, 왜 그렇게 읽는지"를 깊고 구체적으로 알고 싶어 합니다.`;
+const DEEP_RULES = `- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
+- 어느 구절에나 할 수 있는 일반론은 쓰지 마세요. 이 구절에만 해당하는 구체적인 내용(낱말, 문법, 역사적 사실, 앞뒤 흐름, 다른 구절과의 관계)을 씁니다.
+- 영어 자료는 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
+- 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
+
+const VERSE_CORE_PROMPT = `${DEEP_ROLE}
+아래에 개역개정 구절, 다른 번역, 앞뒤 본문이 주어집니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
+ "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열",
+ "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
+규칙:
+${DEEP_RULES}
+- links 3~6개.`;
+
+const VERSE_QA_PROMPT = `${DEEP_ROLE}
+아래에 개역개정 구절, 다른 번역(새번역·영어 BSB), 앞뒤 본문, 고전 주석들의 영어 원문 발췌가 주어집니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 3~6문장"}],
+ "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 1~3문장"}]}]}
+규칙:
+${DEEP_RULES}
+- questions 3~5개. debates는 실제로 견해가 갈리는 곳만 0~3개 (각 2~3개 견해를 공정하게).
+- 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다.
+- 다른 번역이 개역개정과 뜻이 달라 보이는 곳이 있으면, 그 차이와 이유를 questions에서 설명하세요.`;
+
+const VERSE_COMM_PROMPT = `${DEEP_ROLE}
+아래에 개역개정 구절과, 고전 주석 하나의 영어 원문 발췌가 주어집니다.
+이 주석이 이 구절에 대해 실제로 말하는 내용을 한국어로 정리하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"point":"이 주석이 이 구절에서 주장하는 구체적 논점과 그 근거(원어 낱말, 문법, 다른 성경 구절, 역사적 사실, 논리) 4~8문장. 발췌 내용을 충실히 살려 이 주석만의 특색이 드러나게"}
+규칙:
+${DEEP_RULES}
+- 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다.
+- 발췌가 이 구절과 상관없는 내용뿐이면 {"point":""} 를 출력하세요.`;
+
 const VERSE_EXTRA_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도입니다.
 아래에 개역개정 구절, 앞뒤 본문, 그 책의 소개(주제·구조)가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
@@ -239,6 +277,40 @@ async function handleAsk(request, env) {
       };
       if (!res.summary && !res.questions.length) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
       return json(res);
+    }
+    if (body.step === 'verse-core') {
+      const out = await runLLM(env, VERSE_CORE_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n다른 번역:\n${clip(body.others, 3000) || '(없음)'}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}`,
+        { max_tokens: 5000 });
+      const res = {
+        summary: clip(out.summary, 1200),
+        background: clip(out.background, 1500),
+        links: (Array.isArray(out.links) ? out.links : []).slice(0, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref),
+      };
+      if (!res.summary) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
+      return json(res);
+    }
+    if (body.step === 'verse-qa') {
+      const out = await runLLM(env, VERSE_QA_PROMPT,
+        `구절: ${q}\n${clip(body.text, 3000)}\n\n다른 번역:\n${clip(body.others, 3000) || '(없음)'}\n\n앞뒤 본문(참고):\n${clip(body.around, 3000)}\n\n고전 주석 발췌(영어 원문):\n${sourcesText(body.sources)}`,
+        { max_tokens: 8000 });
+      const arr = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+      const res = {
+        questions: arr(out.questions, 6).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 2000) })).filter(x => x.q && x.a),
+        debates: arr(out.debates, 4).map(d => ({
+          issue: clip(d?.issue, 300),
+          views: arr(d?.views, 4).map(v => ({ view: clip(v?.view, 800), who: clip(v?.who, 80), why: clip(v?.why, 800) })).filter(v => v.view),
+        })).filter(d => d.issue && d.views.length),
+      };
+      if (!res.questions.length) return json({ error: 'AI가 궁금증 풀이를 쓰지 못했습니다' }, 502);
+      return json(res);
+    }
+    if (body.step === 'verse-comm') {
+      const who = clip(body.who, 40);
+      const out = await runLLM(env, VERSE_COMM_PROMPT,
+        `구절: ${q}\n${clip(body.text, 2000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 1500)}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 4000)}`,
+        { max_tokens: 4000 });
+      return json({ who, point: clip(out.point, 2500) });
     }
     if (body.step === 'verse-extra') {
       const out = await runLLM(env, VERSE_EXTRA_PROMPT,

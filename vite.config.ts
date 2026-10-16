@@ -58,7 +58,7 @@ export default defineConfig({
     react(),
     flatAssets(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt', // 새 버전이 있으면 버튼을 보여 주고, 누르면 업데이트
       manifest: {
         id: '/',
         name: 'SK-성경',

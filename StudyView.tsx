@@ -3,7 +3,7 @@ import { BibleData } from './bible';
 import { goTo } from './store';
 import { parseRef } from './bible';
 import {
-  askLex, askTerm, askVerse, askVerseExtra, type VerseExtra, askVerseMore, cacheGet, cacheSet, COMMENTARY_CREDIT, getSources, getXrefs, LexAi, NS, passageLabel, Source, TermAi, VerseAi,
+  askLex, askTerm, runDeepVerse, type DeepProgress, askVerseExtra, type VerseExtra, askVerseMore, cacheGet, cacheSet, COMMENTARY_CREDIT, getSources, getXrefs, LexAi, NS, passageLabel, Source, TermAi, VerseAi,
   XRef, xrefLabel, XREF_MB, xrefReady, xrefText,
 } from './study';
 import { getTranslation, TRANSLATIONS } from './translations';
@@ -130,26 +130,59 @@ function RefLink({ text, data, onGo }: { text: string; data: BibleData; onGo: Go
   return r ? <button className="ref-link" onClick={() => onGo(r)}>{text}</button> : <b className="ref-plain">{text}</b>;
 }
 
+/** 깊은 해설: 여러 부분을 동시에 요청하고, 끝난 부분부터 바로 보여 줌 */
+function useDeep(key: string, run: (s: AbortSignal, on: (p: DeepProgress) => void) => Promise<VerseAi>) {
+  const [val, setVal] = useState<VerseAi | undefined>(() => cacheGet<VerseAi>(NS.verse, key));
+  const [prog, setProg] = useState<DeepProgress | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [err, setErr] = useState('');
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (val && n === 0) return;
+    const ctl = new AbortController();
+    setState('loading'); setProg(null); setErr('');
+    run(ctl.signal, p => { if (!ctl.signal.aborted) setProg(p); })
+      .then(r => { if (ctl.signal.aborted) return; setVal(r); if (!r.partial) cacheSet(NS.verse, key, r, 80); setState('idle'); setProg(null); })
+      .catch(e => { if (!ctl.signal.aborted) { setErr((e as Error).message); setState('error'); setProg(null); } });
+    return () => ctl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n, key]);
+  const update = (v: VerseAi) => { setVal(v); cacheSet(NS.verse, key, v, 80); };
+  return { val, prog, state, err, update, again: () => setN(x => x + 1) };
+}
+
+function Waiting({ text }: { text: string }) {
+  return <div className="deep-wait"><div className="spinner small" /> {text}</div>;
+}
+
 function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; book: number; chapter: number; verses: number[]; onGo: Go }) {
   const key = `${book}:${chapter}:${verses.join(',')}`;
-  const { val: ai, state, err, phase, update, again } = useAi<VerseAi>(NS.verse, key, 80, (s, ph) => askVerse(data, book, chapter, verses, s, ph));
+  const { val, prog, state, err, update, again } = useDeep(key, (s, on) => runDeepVerse(data, book, chapter, verses, s, on));
+  const ai = prog ? prog.ai : val;
+  const busy = state === 'loading';
+  const commWait = prog ? prog.comm.filter(c => c.state === 'wait').map(c => c.who) : [];
+  const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (prog.core === 'fail' ? 1 : 0) + (prog.qa === 'fail' ? 1 : 0) : 0;
   return (
     <>
       <div className="ai-card deep">
         <div className="ai-head"><span className="ai-badge">AI</span> 깊은 해설</div>
-        <AiStatus state={state} err={err} has={!!ai} again={again} wait={phase || '준비 중…'} />
+        {state === 'error' && !val && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={again}>다시 시도</button></div>}
+        {busy && !prog && !val && <Waiting text="준비 중…" />}
         {ai && (
           <>
+            {prog && prog.core === 'wait' && <Waiting text="요약과 배경을 쓰는 중…" />}
             {ai.summary && <p className="ai-intro">{ai.summary}</p>}
             {ai.background && <><div className="ai-sec">🏛️ 꼭 알아야 할 배경</div><p className="ai-interp">{ai.background}</p></>}
 
-            {ai.commentators?.length > 0 && (
+            {(ai.commentators?.length > 0 || commWait.length > 0) && (
               <><div className="ai-sec">📚 주석가들은 이렇게 봅니다</div>
                 {ai.commentators.map((c, i) => (
                   <div key={i} className="deep-box"><div className="deep-who">{c.who}</div><div>{c.point}</div></div>
-                ))}</>
+                ))}
+                {commWait.length > 0 && <Waiting text={prog?.collecting && commWait.length === prog.comm.length ? '주석 자료를 모으는 중…' : `${commWait.join(' · ')} 읽는 중…`} />}</>
             )}
 
+            {prog && prog.qa === 'wait' && <><div className="ai-sec">❓ 궁금증 풀이</div><Waiting text={prog.collecting ? '주석 자료를 모은 뒤 씁니다…' : '궁금증 풀이와 해석이 갈리는 곳을 쓰는 중…'} /></>}
             {ai.questions?.length > 0 && (
               <><div className="ai-sec">❓ 궁금증 풀이</div>
                 {ai.questions.map((x, i) => (
@@ -179,18 +212,19 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
                 ))}</>
             )}
 
+            {(failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부를 받지 못했습니다. 아래 "다시 해설"을 눌러 주세요.</div>}
             <div className="ai-foot">
-              {state === 'loading' ? <span className="muted">{phase || '다시 쓰는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
+              {busy ? <span className="muted">{val && !prog ? '다시 쓰는 중…' : '끝난 부분부터 보여 드립니다'}</span> : <button onClick={again}>↻ 다시 해설</button>}
             </div>
           </>
         )}
       </div>
 
-      {ai && <VerseExtraCard data={data} book={book} chapter={chapter} verses={verses} />}
-      {ai && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={ai} update={update} onGo={onGo} />}
-      {ai && <SourceView book={book} chapter={chapter} verses={verses} />}
+      <VerseExtraCard data={data} book={book} chapter={chapter} verses={verses} />
+      {val && !busy && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={val} update={update} onGo={onGo} />}
+      {(val || prog) && <SourceView book={book} chapter={chapter} verses={verses} />}
 
-      <p className="desc small">AI 해설은 참고용입니다. 성경 본문과 함께 분별하며 읽어 주세요.{ai?.sourceCount === 0 ? ' (이번 해설은 주석 자료를 받지 못해 AI 지식으로만 썼습니다)' : ''}<br />{COMMENTARY_CREDIT}</p>
+      <p className="desc small">AI 해설은 참고용입니다. 성경 본문과 함께 분별하며 읽어 주세요.{val?.sourceCount === 0 && !busy ? ' (이번 해설은 주석 자료를 받지 못해 AI 지식으로만 썼습니다)' : ''}<br />{COMMENTARY_CREDIT}</p>
     </>
   );
 }

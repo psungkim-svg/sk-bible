@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { applyUpdate, subscribeUpdate, updateReady, updateVersion } from './pwa';
 import { BibleData, loadBible } from './bible';
 import { BOOKS } from './books';
 import BookmarksView from './BookmarksView';
@@ -113,7 +114,25 @@ export default function App() {
         })}
       </nav>
 
+      <UpdateBar />
       {toastMsg && <div className="toast">{toastMsg}</div>}
+    </div>
+  );
+}
+
+/** 새 버전이 준비되면 아래쪽에 "업데이트" 버튼 (누르면 업데이트, ✕는 이번만 숨김) */
+function UpdateBar() {
+  const ready = useSyncExternalStore(subscribeUpdate, updateReady);
+  const ver = useSyncExternalStore(subscribeUpdate, updateVersion);
+  const [hide, setHide] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!ready || hide) return null;
+  return (
+    <div className="update-bar">
+      <button className="update-go" disabled={busy} onClick={() => { setBusy(true); applyUpdate(); }}>
+        {busy ? '업데이트 중…' : <>🆕 새 버전{ver ? ` v${ver}` : ''}이 있습니다 · <b>눌러서 업데이트</b></>}
+      </button>
+      {!busy && <button className="update-x" onClick={() => setHide(true)} aria-label="나중에">✕</button>}
     </div>
   );
 }

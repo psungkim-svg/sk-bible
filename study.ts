@@ -160,6 +160,7 @@ export interface VerseAi {
   links: { ref: string; why: string }[];             // 성경 연결
   asks?: { q: string; a: string; refs?: string[] }[]; // 내가 더 물어본 것
   sourceCount?: number;
+  partial?: boolean;                                 // 일부를 받지 못함 (다시 해설로 채움)
 }
 
 function verseInput(data: BibleData, book: number, chapter: number, verses: number[]) {
@@ -180,6 +181,70 @@ export async function askVerse(data: BibleData, book: number, chapter: number, v
   onPhase?.(sources.length ? `주석 ${sources.length}권을 읽고 해설을 쓰는 중… (30초~1분)` : '해설을 쓰는 중… (주석 자료를 받지 못해 AI 지식으로만)');
   const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources, others }, signal);
   return { ...r, sourceCount: sources.length };
+}
+
+/* ---- v1.6.4: 깊은 해설을 나눠서 동시에 요청 → 먼저 끝난 부분부터 화면에 ---- */
+export interface DeepProgress {
+  ai: VerseAi;
+  collecting: boolean;          // 주석 자료를 모으는 중
+  core: 'wait' | 'done' | 'fail';
+  qa: 'wait' | 'done' | 'fail';
+  comm: { who: string; state: 'wait' | 'done' | 'fail' | 'none' }[];
+}
+export async function runDeepVerse(data: BibleData, book: number, chapter: number, verses: number[], signal: AbortSignal, onUpdate: (p: DeepProgress) => void): Promise<VerseAi> {
+  const v = [...verses].sort((a, b) => a - b);
+  const input = verseInput(data, book, chapter, v);
+  const list = navigator.onLine ? COMMENTARIES.filter(c => !c.ot || book < 39) : [];
+  const ai: VerseAi = { summary: '', background: '', commentators: [], questions: [], debates: [], links: [] };
+  const points: Record<string, string> = {};
+  const p: DeepProgress = { ai, collecting: list.length > 0, core: 'wait', qa: 'wait', comm: list.map(c => ({ who: c.name, state: 'wait' })) };
+  const emit = () => {
+    if (signal.aborted) return;
+    ai.commentators = list.map(c => ({ who: c.name, point: points[c.name] || '' })).filter(c => c.point);
+    onUpdate({ ...p, ai: { ...ai }, comm: p.comm.map(c => ({ ...c })) });
+  };
+  const setComm = (who: string, state: DeepProgress['comm'][number]['state']) => { const c = p.comm.find(x => x.who === who); if (c) c.state = state; };
+  emit();
+  const othersP = otherTranslations(book, chapter, v);
+
+  // ① 요약 · 배경 · 성경 연결 (주석 없이 바로 시작)
+  const coreP = ask<Pick<VerseAi, 'summary' | 'background' | 'links'>>({ step: 'verse-core', ...input }, signal)
+    .then(r => { ai.summary = r.summary; ai.background = r.background; ai.links = r.links || []; p.core = 'done'; emit(); })
+    .catch(() => { p.core = 'fail'; emit(); });
+
+  // ② 주석마다 따로: 자료가 오는 대로 바로 요청
+  const sources: Source[] = [];
+  const srcPs = list.map(async c => {
+    const items = await fetchChapter(c.id, book, chapter).catch(() => null);
+    const text = items ? excerpt(items, chapter, v, c.max) : '';
+    if (text.length > 40) sources.push({ who: c.name, text });
+    return text.length > 40 ? text : '';
+  });
+  const commP = Promise.all(list.map(async (c, i) => {
+    const text = await srcPs[i];
+    if (!text) { setComm(c.name, 'none'); emit(); return; }
+    try {
+      const r = await ask<{ point: string }>({ step: 'verse-comm', ...input, who: c.name, source: text }, signal);
+      if (r.point) { points[c.name] = r.point; setComm(c.name, 'done'); } else setComm(c.name, 'none');
+    } catch { setComm(c.name, 'fail'); }
+    emit();
+  }));
+
+  // ③ 궁금증 풀이 · 해석이 갈리는 곳 (주석 자료를 다 모은 뒤)
+  const qaP = Promise.all([othersP, Promise.all(srcPs)])
+    .then(([others]) => {
+      p.collecting = false; emit();
+      const ordered = list.map(c => sources.find(x => x.who === c.name)).filter((x): x is Source => !!x);
+      return ask<Pick<VerseAi, 'questions' | 'debates'>>({ step: 'verse-qa', ...input, others, sources: ordered }, signal);
+    })
+    .then(r => { ai.questions = r.questions || []; ai.debates = r.debates || []; p.qa = 'done'; emit(); })
+    .catch(() => { p.qa = 'fail'; emit(); });
+
+  await Promise.all([coreP, commP, qaP]);
+  if (signal.aborted) throw new Error('취소됨');
+  ai.commentators = list.map(c => ({ who: c.name, point: points[c.name] || '' })).filter(c => c.point);
+  if (p.core === 'fail' && p.qa === 'fail' && !ai.commentators.length) throw new Error('AI가 해설을 쓰지 못했습니다. 잠시 뒤 다시 시도해 주세요');
+  return { ...ai, sourceCount: sources.length, partial: p.core === 'fail' || p.qa === 'fail' || p.comm.some(c => c.state === 'fail') };
 }
 
 /** 🧭 책 전체 흐름 + 🎓 현대 학자들의 견해 — 주석 해설과 따로 (주석 해설이 짧아지지 않게) */
