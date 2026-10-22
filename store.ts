@@ -72,7 +72,13 @@ export interface AppState {
   recentSearches: string[];
   searchMode: SearchMode;
   bmMode: 'bm' | 'mem';   // 북마크 화면: 북마크 / 암송
+  obs: ObsState;           // 🔍 관찰 돕기
+  myHeads: Record<string, string>;  // 내 단락 제목 "b:c:v"
+  obsNotes: Record<string, string>; // 관찰 질문에 적은 내 생각 "b:c:질문"
 }
+
+export interface ObsState { on: boolean; conj: boolean; heads: boolean; scope: 'chapter' | 'book' }
+const DEFAULT_OBS: ObsState = { on: false, conj: true, heads: false, scope: 'chapter' };
 
 const DEFAULT_PAGES: PageState[] = [
   { book: 0, chapter: 1, verse: 1, history: [] },   // 창세기 1
@@ -127,6 +133,7 @@ function load(): AppState {
   const base: AppState = {
     tab: 0, lastPage: 0, pages: DEFAULT_PAGES, bookmarks: [], memory: [], highlights: {},
     settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word', bmMode: 'bm',
+    obs: DEFAULT_OBS, myHeads: {}, obsNotes: {},
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -136,6 +143,7 @@ function load(): AppState {
       ...base, ...s,
       tab: 0, lastPage: 0, // 앱을 켜면 항상 페이지 1
       settings: withDefaults(s.settings),
+      obs: { ...DEFAULT_OBS, ...(s.obs || {}) },
       pages: DEFAULT_PAGES.map((d, i) => ({ ...d, ...(s.pages?.[i] || {}), flash: undefined })),
     };
   } catch {
@@ -294,14 +302,31 @@ export function setSettings(patch: Partial<Settings>) {
   setState(s => ({ settings: { ...s.settings, ...patch } }));
 }
 
+/* ---------- 🔍 관찰 돕기 ---------- */
+export function setObs(patch: Partial<ObsState>) { setState(s => ({ obs: { ...s.obs, ...patch } })); }
+export function setMyHead(key: string, text: string) {
+  setState(s => {
+    const myHeads = { ...s.myHeads };
+    if (text.trim()) myHeads[key] = text; else delete myHeads[key];
+    return { myHeads };
+  });
+}
+export function setObsNote(key: string, text: string) {
+  setState(s => {
+    const obsNotes = { ...s.obsNotes };
+    if (text.trim()) obsNotes[key] = text; else delete obsNotes[key];
+    return { obsNotes };
+  });
+}
+
 export function addRecentSearch(q: string) {
   setState(s => ({ recentSearches: [q, ...s.recentSearches.filter(x => x !== q)].slice(0, 12) }));
 }
 
 /* ---------- 백업 (폰 바꿀 때) ---------- */
 export function exportBackup(): string {
-  const { bookmarks, memory, highlights, settings, pages } = state;
-  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages }, null, 1);
+  const { bookmarks, memory, highlights, settings, pages, myHeads, obsNotes } = state;
+  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages, myHeads, obsNotes }, null, 1);
 }
 
 export function importBackup(json: string, mode: 'merge' | 'replace') {
@@ -311,6 +336,7 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
     if (mode === 'replace') {
       return {
         bookmarks: d.bookmarks || [], memory: d.memory || [], highlights: d.highlights || {},
+        myHeads: d.myHeads || {}, obsNotes: d.obsNotes || {},
         settings: withDefaults(d.settings),
         pages: d.pages ? DEFAULT_PAGES.map((p, i) => ({ ...p, ...(d.pages[i] || {}) })) : s.pages,
       };
@@ -323,6 +349,8 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
       memory: [...s.memory, ...madd],
       bookmarks: [...s.bookmarks, ...add].sort((a, b) => b.createdAt - a.createdAt),
       highlights: { ...(d.highlights || {}), ...s.highlights },
+      myHeads: { ...(d.myHeads || {}), ...s.myHeads },
+      obsNotes: { ...(d.obsNotes || {}), ...s.obsNotes },
     };
   });
 }

@@ -3,8 +3,10 @@ import { flushSync } from 'react-dom';
 import { BibleData, buildCopyText, refLabel } from './bible';
 import { BOOKS } from './books';
 import {
-  addBookmark, addMemory, goBack, goTo, HlColor, setHighlight, updatePage, useStore,
+  addBookmark, addMemory, goBack, goTo, HlColor, ObsState, setHighlight, setMyHead, setObs, updatePage, useStore,
 } from './store';
+import ChapterStudy from './ChapterStudy';
+import { CONJ_LABEL, ConjKind, contrastPairs, countAll, repeatedWords, Seg, segments } from './obs';
 import { copyText, shareText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 import ToolIcons, { Chev } from './ToolIcons';
@@ -35,13 +37,35 @@ export default function Reader({ index, data, active }: Props) {
   const [studyTab, setStudyTab] = useState<'explain' | 'xref'>('explain');
   const [bgOpen, setBgOpen] = useState(false);
   useEffect(() => { setBgOpen(false); }, [book, chapter]);
+  /* 🔍 관찰 돕기 · 📘 장 깊은 해설 */
+  const obs = useStore(s => s.obs);
+  const [chapOpen, setChapOpen] = useState(false);
+  const [selWord, setSelWord] = useState<string | null>(null);
+  const [selPair, setSelPair] = useState<[string, string] | null>(null);
+  useEffect(() => { if (obs.scope === 'chapter') { setSelWord(null); setSelPair(null); } }, [book, chapter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelWord(null); setSelPair(null); }, [book, obs.scope]);
+  const mark = useMemo(() => {
+    if (!obs.on) return undefined;
+    const words = new Map<string, 1 | 2>();
+    if (selWord) words.set(selWord, 1);
+    if (selPair) { words.set(selPair[0], 1); words.set(selPair[1], 2); }
+    if (!obs.conj && !words.size) return undefined;
+    return (t: string) => renderSegs(segments(t, { conj: obs.conj, words }));
+  }, [obs.on, obs.conj, selWord, selPair]);
   // 장 맨 위: (1장이면) 책 소개 + 장 주제를 누르면 펼쳐지는 배경 카드
   const topSlot = useMemo<ReactNode>(() => (
     <>
+      <div className="chap-tools">
+        <button className={'ct-btn' + (obs.on ? ' on' : '')} onClick={() => setObs({ on: !obs.on })}>🔍 관찰 돕기</button>
+        <button className="ct-btn" onClick={() => setChapOpen(true)}>📘 장 깊은 해설</button>
+      </div>
+      {obs.on && <ObsPanel data={data} book={book} chapter={chapter} obs={obs} selWord={selWord} selPair={selPair}
+        onWord={w => { setSelPair(null); setSelWord(x => (x === w ? null : w)); }}
+        onPair={pr => { setSelWord(null); setSelPair(x => (x && x[0] === pr[0] && x[1] === pr[1] ? null : pr)); }} />}
       {chapter === 1 && <BookIntro data={data} book={book} compact onGo={(c, v) => goTo(index, { book, chapter: c, verse: v ?? 1 })} />}
       {bgOpen && <BackgroundCard data={data} book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
     </>
-  ), [data, book, chapter, bgOpen, index]);
+  ), [data, book, chapter, bgOpen, index, obs, selWord, selPair]);
   const topic = useTopic(book, chapter);
   // 장 주제: 처음 여는 장이면 AI에게 요청 (인터넷이 될 때). 소제목은 앱 안에 들어 있음
   useEffect(() => {
@@ -304,6 +328,7 @@ export default function Reader({ index, data, active }: Props) {
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
             topic={topic} onRetryTopic={() => ensureTopic(data, book, chapter, true)} topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            mark={mark} myHeads={obs.on && obs.heads}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -357,6 +382,8 @@ export default function Reader({ index, data, active }: Props) {
       )}
 
 
+      {chapOpen && <ChapterStudy data={data} book={book} chapter={chapter} page={index} onClose={() => setChapOpen(false)} />}
+
       {pickerOpen && (
         <BookPicker
           data={data}
@@ -385,6 +412,8 @@ interface BodyProps {
   onTopicClick?: () => void;
   showHeadings?: boolean;
   showTopic?: boolean;
+  mark?: (t: string) => ReactNode;   // 🔍 관찰: 접속사 · 낱말 표시
+  myHeads?: boolean;                 // 🔍 관찰: 내 단락 제목
   handlers?: {
     onClick: (v: number) => void;
     onTouchStart: (v: number, e: React.TouchEvent) => void;
@@ -395,11 +424,12 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, mark, myHeads, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
   const headAt = new Map<number, Head[]>();
-  if (showHeadings) for (const hd of getHeads(book, chapter)) headAt.set(hd.v, [...(headAt.get(hd.v) ?? []), hd]);
+  if (showHeadings || myHeads) for (const hd of getHeads(book, chapter)) headAt.set(hd.v, [...(headAt.get(hd.v) ?? []), hd]);
+  if (myHeads && !headAt.size) headAt.set(1, []); // 소제목이 없는 장은 맨 앞에 하나
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
@@ -419,9 +449,11 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
           const m = t.match(/^(\[[^\]]+\])\s*(.*)$/); // 시편 표제 등
           return (
             <Fragment key={v}>
-            {head?.map((hd, j) => (
-              <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
-            ))}
+            {myHeads
+              ? head && <MyHead k={`${book}:${chapter}:${v}`} official={head.map(hd => hd.title).join(' / ')} />
+              : head?.map((hd, j) => (
+                <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
+              ))}
             <p
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
@@ -432,7 +464,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
               onContextMenu={h && (e => { e.preventDefault(); h.onContext(v); })}
             >
               <span className="vnum">{v}{bookmarked?.has(v) && <span className="bm-dot" />}</span>
-              {m ? <><span className="vtitle">{m[1]}</span> {m[2]}</> : t}
+              {m ? <><span className="vtitle">{m[1]}</span> {mark ? mark(m[2]) : m[2]}</> : mark ? mark(t) : t}
             </p>
             </Fragment>
           );
@@ -450,4 +482,91 @@ function GhostBody(p: { data: BibleData; book: number; chapter: number; highligh
 
 function Ico({ d }: { d: string }) {
   return <svg viewBox="0 0 24 24" width="22" height="22"><path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
+}
+
+/* ---------- 🔍 관찰 돕기 ---------- */
+function renderSegs(segs: Seg[]): ReactNode {
+  return segs.map((x, i) => (x.conj || x.word
+    ? <span key={i} className={(x.conj ? 'cj cj-' + x.conj : '') + (x.word ? ' wm wm' + x.word : '')}>{x.t}</span>
+    : x.t));
+}
+
+const CONJ_KINDS: ConjKind[] = ['res', 'con', 'why', 'pur', 'if'];
+
+function ObsPanel({ data, book, chapter, obs, selWord, selPair, onWord, onPair }: {
+  data: BibleData; book: number; chapter: number; obs: ObsState; selWord: string | null; selPair: [string, string] | null;
+  onWord: (w: string) => void; onPair: (p: [string, string]) => void;
+}) {
+  const isBook = obs.scope === 'book';
+  const chapCounts = useMemo(() => countAll(data[book][chapter - 1]), [data, book, chapter]);
+  const scopeVerses = useMemo(() => (isBook ? data[book].flat() : data[book][chapter - 1]), [data, book, chapter, isBook]);
+  const top = useMemo(() => repeatedWords(scopeVerses, isBook ? 5 : 3, isBook ? 20 : 12), [scopeVerses, isBook]);
+  const pairs = useMemo(() => contrastPairs(isBook ? countAll(scopeVerses) : chapCounts), [scopeVerses, isBook, chapCounts]);
+  const unit = book === 18 ? '편' : '장';
+  return (
+    <div className="obs-panel">
+      <div className="obs-row">
+        <button className={'obs-sw' + (obs.conj ? ' on' : '')} onClick={() => setObs({ conj: !obs.conj })}>{obs.conj ? '☑' : '☐'} 접속사 색</button>
+        <button className={'obs-sw' + (obs.heads ? ' on' : '')} onClick={() => setObs({ heads: !obs.heads })}>{obs.heads ? '☑' : '☐'} 내 단락 제목</button>
+        <button className="obs-close" onClick={() => setObs({ on: false })} aria-label="관찰 닫기">✕</button>
+      </div>
+      {obs.conj && <div className="obs-legend">{CONJ_KINDS.map(k => <span key={k} className={'cj cj-' + k}>{CONJ_LABEL[k]}</span>)}</div>}
+
+      <div className="obs-sub">
+        <span>🔁 많이 나오는 낱말</span>
+        <span className="obs-scope">
+          <button className={!isBook ? 'on' : ''} onClick={() => setObs({ scope: 'chapter' })}>이 {unit}</button>
+          <button className={isBook ? 'on' : ''} onClick={() => setObs({ scope: 'book' })}>이 책</button>
+        </span>
+      </div>
+      {top.length ? (
+        <div className="obs-chips">
+          {top.map(([w, n]) => (
+            <button key={w} className={'obs-chip' + (selWord === w ? ' on' : '')} onClick={() => onWord(w)}>{w}<small>{n}</small></button>
+          ))}
+        </div>
+      ) : <div className="obs-none">여러 번 반복되는 낱말이 없습니다</div>}
+      {selWord && (
+        <div className="obs-hint">
+          <span className="wm wm1">{selWord}</span> {isBook ? `이 책에서 ${top.find(x => x[0] === selWord)?.[1] ?? 0}번 · ` : ''}이 {unit}에서 {chapCounts.get(selWord) || 0}번 — 본문에 표시했습니다
+        </div>
+      )}
+
+      {pairs.length > 0 && (
+        <>
+          <div className="obs-sub"><span>↔️ 대조되는 말</span></div>
+          <div className="obs-chips">
+            {pairs.map(pr => {
+              const on = !!selPair && selPair[0] === pr.a && selPair[1] === pr.b;
+              return (
+                <button key={pr.a + pr.b} className={'obs-chip pair' + (on ? ' on' : '')} onClick={() => onPair([pr.a, pr.b])}>
+                  <span className="wm wm1">{pr.a}</span>↔<span className="wm wm2">{pr.b}</span><small>{pr.na}·{pr.nb}</small>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <div className="obs-foot">낱말을 누르면 본문에 표시됩니다 · 조사를 떼고 셉니다 (하나님이·하나님의 → 하나님)</div>
+    </div>
+  );
+}
+
+/** ✏️ 내 단락 제목: 먼저 내가 붙이고, 공식 소제목과 비교 */
+function MyHead({ k, official }: { k: string; official: string }) {
+  const saved = useStore(s => s.myHeads[k] || '');
+  const [text, setText] = useState(saved);
+  const [show, setShow] = useState(false);
+  useEffect(() => { setText(saved); }, [saved]);
+  return (
+    <div className="my-head">
+      <div className="my-head-row">
+        <input className="my-head-in" value={text} placeholder="✏️ 이 단락에 내 제목을 붙여 보세요" enterKeyHint="done"
+          onChange={e => setText(e.target.value)} onBlur={() => setMyHead(k, text)}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+        {official && <button className="my-head-btn" onClick={() => setShow(x => !x)}>{show ? '숨기기' : '소제목 보기'}</button>}
+      </div>
+      {show && official && <div className="my-head-off">📖 {official}</div>}
+    </div>
+  );
 }

@@ -126,9 +126,9 @@ function AiStatus({ state, err, has, again, wait }: { state: string; err: string
 }
 
 /* ---------- ① 깊은 해설 (고전 주석 근거 · 궁금증 · 견해 비교 · 성경 연결) ---------- */
-type Go = (r: { book: number; chapter: number; verse?: number }) => void;
+export type Go = (r: { book: number; chapter: number; verse?: number }) => void;
 
-function RefLink({ text, data, onGo }: { text: string; data: BibleData; onGo: Go }) {
+export function RefLink({ text, data, onGo }: { text: string; data: BibleData; onGo: Go }) {
   const r = parseRef(text.replace(/\s*\(.*\)\s*$/, ''), data);
   return r ? <button className="ref-link" onClick={() => onGo(r)}>{text}</button> : <b className="ref-plain">{text}</b>;
 }
@@ -154,7 +154,7 @@ function useDeep(key: string, run: (s: AbortSignal, on: (p: DeepProgress) => voi
   return { val, prog, state, err, update, again: () => setN(x => x + 1) };
 }
 
-function Waiting({ text }: { text: string }) {
+export function Waiting({ text }: { text: string }) {
   return <div className="deep-wait"><div className="spinner small" /> {text}</div>;
 }
 

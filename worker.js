@@ -126,6 +126,59 @@ const VERSE_ASK_PROMPT = `당신은 신학대학원에서 성경 주해를 가�
 {"answer":"질문에 대한 답 4~10문장. 근거(본문, 다른 성경 구절, 주석 이름)를 밝히며 구체적으로","refs":["근거로 든 성경 구절 (예: 롬 5:8)"]}
 규칙: 적용·교훈·기도는 쓰지 말고 질문에 대한 답만 합니다. 견해가 갈리면 여러 견해를 공정하게 소개합니다. 주석에 없는 말을 주석 이름으로 지어내지 말고, 모르는 것은 모른다고 하세요. 존댓말로 씁니다.`;
 
+/* ---- v1.7: 장 깊은 해설 (흐름 · 관찰 질문 · 어려운 곳 · 주석가별) ---- */
+const CHAP_ROLE = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 성경 한 장을 깊고 구체적으로 이해하고 싶어 합니다.`;
+const CHAP_RULES = `- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게", "우리가 배울 점" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
+- 어느 장에나 할 수 있는 일반론은 쓰지 마세요. 이 장에만 해당하는 구체적인 내용(낱말, 흐름, 논리, 역사적 사실, 다른 구절과의 관계)을 씁니다.
+- 성경 인용은 개역개정 표현을 따르고, 절을 말할 때는 "3절", "5-8절"처럼 숫자로 밝히세요.
+- 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
+
+const CHAP_FLOW_PROMPT = `Reasoning: low
+${CHAP_ROLE}
+아래에 개역개정 한 장 전체, 단락 소제목, 앞 장 끝과 다음 장 처음, 그 책의 소개가 주어집니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"flow":[{"from":1,"to":4,"title":"이 단락의 핵심을 담은 짧은 제목 (20자 이내)","gist":"이 단락이 말하는 것과 앞 단락에서 어떻게 이어지는지 2~3문장"}],
+ "key":[{"v":28,"why":"이 절이 이 장을 여는 열쇠인 이유 2~3문장"}],
+ "prev":"앞 장(또는 앞부분)에서 이 장으로 어떻게 넘어오는지 2~3문장",
+ "next":"이 장이 다음 장(또는 뒷부분)으로 어떻게 이어지는지 2~3문장"}
+규칙:
+${CHAP_RULES}
+- flow: 장 전체를 빠짐없이 3~7단락으로 나눕니다 (from/to는 절 번호, 첫 단락은 1절부터, 마지막 단락은 마지막 절까지). 단락의 논리 관계(그러므로, 그러나, 이는 등)가 드러나게 씁니다.
+- key: 1~2개.`;
+
+const CHAP_OBS_PROMPT = `Reasoning: low
+${CHAP_ROLE}
+아래에 개역개정 한 장 전체가 주어집니다. 독자가 해설을 보기 전에 본문을 직접 꼼꼼히 관찰하도록 돕는 "관찰 질문"을 만들고, 각각의 답을 쓰세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"questions":[{"q":"본문을 잘 보면 답을 찾을 수 있는 구체적인 질문","v":[1,4],"a":"본문에서 찾은 답과 그것이 이 장에서 갖는 의미 2~4문장"}]}
+규칙:
+${CHAP_RULES}
+- questions 4~5개. 반드시 본문 안에서 답을 찾을 수 있는 관찰 질문만 냅니다. 예: 반복되는 낱말과 그 뜻, 접속사(그러므로·그러나·이는)가 잇는 것, 대조되는 것, 인물의 말과 행동, 단락 사이의 흐름, 앞뒤 장과의 연결.
+- "당신은 어떻게 생각하나요?", "나에게 어떤 의미인가요?", "어떻게 살아야 할까요?" 같은 묵상·적용 질문은 절대 내지 마세요.
+- v: 그 질문과 관련된 절 번호 1~3개.
+- 쉬운 질문에서 깊은 질문 순서로 놓습니다.`;
+
+const CHAP_HARD_PROMPT = `${CHAP_ROLE}
+아래에 개역개정 한 장 전체, 단락 소제목, 고전 주석들의 영어 원문 발췌(일부)가 주어집니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"hard":[{"q":"이 장에서 성도들이 실제로 많이 막히거나 오해하는 곳 (절 번호와 함께)","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 4~7문장. 견해가 갈리면 여러 견해를 공정하게"}],
+ "canon":[{"ref":"성경 구절 (예: 창 3:17-19)","why":"이 장이 그 구절과 어떻게 이어지는지 — 구약의 약속과 배경, 인용, 같은 주제의 발전, 성취 등 1~2문장"}]}
+규칙:
+${CHAP_RULES}
+- hard 3~4개. canon 4~6개 (구약과 신약을 고르게, 성경 전체 이야기 속에서 이 장의 자리가 드러나게).
+- 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 영어 자료는 자연스러운 한국어로 옮기세요.`;
+
+const CHAP_COMM_PROMPT = `Reasoning: low
+${CHAP_ROLE}
+아래에 성경 한 장의 단락 소제목과, 고전 주석 하나가 이 장 전체에 대해 쓴 영어 원문 발췌(장 전체에서 고르게 뽑은 것)가 주어집니다.
+이 주석이 이 장을 어떻게 읽는지 한국어로 정리하세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"point":"이 주석이 이 장 전체를 어떻게 보는지 — 장의 핵심 주제와 구조를 어떻게 이해하는지, 특히 강조하는 절과 그 이유, 이 주석만의 독특한 해석과 근거 5~9문장. 절 번호를 밝히며"}
+규칙:
+${CHAP_RULES}
+- 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
+- 발췌가 이 장과 상관없는 내용뿐이면 {"point":""} 를 출력하세요.`;
+
 /** 폰이 보내 준 주석 발췌를 정리 (최대 8개, 합계 약 14000자) */
 function sourcesText(list) {
   let total = 0;
@@ -287,6 +340,49 @@ async function handleAsk(request, env) {
       };
       if (!res.summary && !res.questions.length) return json({ error: 'AI가 해설을 쓰지 못했습니다. 다시 시도해 주세요' }, 502);
       return json(res);
+    }
+    if (typeof body.step === 'string' && body.step.startsWith('chap-')) {
+      const head = `${clip(body.q, 40)} (모두 ${Number(body.count) || 0}절)\n단락 소제목: ${clip(body.heads, 1500) || '(없음)'}`;
+      const text = clip(body.text, 12000);
+      const arr = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+      if (body.step === 'chap-flow') {
+        const out = await runLLM(env, CHAP_FLOW_PROMPT,
+          `${head}\n\n앞 장 끝: ${clip(body.prev, 500) || '(없음 — 책의 처음)'}\n다음 장 처음: ${clip(body.next, 500) || '(없음 — 책의 끝)'}\n\n책 소개:\n${clip(body.bookinfo, 1200) || '(없음)'}\n\n본문:\n${text}`,
+          { max_tokens: 4000 });
+        const res = {
+          flow: arr(out.flow, 9).map(f => ({ from: Number(f?.from) || 0, to: Number(f?.to) || 0, title: clip(f?.title, 80), gist: clip(f?.gist, 800) })).filter(f => f.from && f.title),
+          key: arr(out.key, 3).map(k => ({ v: Number(k?.v) || 0, why: clip(k?.why, 600) })).filter(k => k.v),
+          prev: clip(out.prev, 800), next: clip(out.next, 800),
+        };
+        if (!res.flow.length) return json({ error: 'AI가 흐름을 쓰지 못했습니다' }, 502);
+        return json(res);
+      }
+      if (body.step === 'chap-obs') {
+        const out = await runLLM(env, CHAP_OBS_PROMPT, `${head}\n\n본문:\n${text}`, { max_tokens: 4000 });
+        const questions = arr(out.questions, 6).map(x => ({
+          q: clip(x?.q, 300), a: clip(x?.a, 1500), v: arr(x?.v, 4).map(Number).filter(n => n > 0),
+        })).filter(x => x.q && x.a);
+        if (!questions.length) return json({ error: 'AI가 질문을 만들지 못했습니다' }, 502);
+        return json({ questions });
+      }
+      if (body.step === 'chap-hard') {
+        const out = await runLLM(env, CHAP_HARD_PROMPT,
+          `${head}\n\n본문:\n${text}\n\n고전 주석 발췌(영어 원문, 일부):\n${sourcesText(body.sources)}`,
+          { max_tokens: 8000 });
+        const res = {
+          hard: arr(out.hard, 5).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 2500) })).filter(x => x.q && x.a),
+          canon: arr(out.canon, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref),
+        };
+        if (!res.hard.length && !res.canon.length) return json({ error: 'AI가 내용을 쓰지 못했습니다' }, 502);
+        return json(res);
+      }
+      if (body.step === 'chap-comm') {
+        const who = clip(body.who, 40);
+        const out = await runLLM(env, CHAP_COMM_PROMPT,
+          `${head}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 5000)}`,
+          { max_tokens: 4000 });
+        return json({ who, point: clip(out.point, 3000) });
+      }
     }
     if (body.step === 'verse-core') {
       const out = await runLLM(env, VERSE_CORE_PROMPT,
