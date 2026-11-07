@@ -720,3 +720,45 @@ button.para-sum.fail { display: block; width: calc(100% - 8px); text-align: left
 .tools { gap: 3px; }
 .tools .tool-btn span { font-size: calc(var(--menu) * .82); }
 .auto-bar { max-width: calc(100% - 16px); }
+
+/* ================= v1.8.2: 해설 · 주석 · 설명 글을 좌우 꽉 차게 (스크롤 줄이기) ================= */
+/* ① 글자 단위 줄바꿈 + 양쪽 맞춤 (설정 → 줄바꿈 "낱말 단위"를 고르면 예전처럼) */
+.ai-card, .deep-box, .deep-qa, .deep-a, .deep-link, .flow-gist, .key-why, .ai-interp, .ai-intro, .ai-points li,
+.bg-card, .bi-body, .para-sum, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
+.lex-row, .lex-note, .ai-verse .txt, .xref .txt, .hit-text, .card-text, .desc, .key-verse, .bg-key, .bi-key, .obs-a {
+  word-break: normal; overflow-wrap: anywhere; text-align: justify;
+}
+[data-wrap="word"] :is(.ai-card, .deep-box, .deep-qa, .deep-a, .deep-link, .flow-gist, .key-why, .ai-interp, .ai-intro, .ai-points li,
+.bg-card, .bi-body, .para-sum, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
+.lex-row, .lex-note, .ai-verse .txt, .xref .txt, .hit-text, .card-text, .desc, .key-verse, .bg-key, .bi-key) { word-break: keep-all; }
+.ai-head, .ai-sec, .deep-who, .deep-q, .flow-title, .tc-head, .ai-foot { text-align: left; }
+
+/* ② 좌우 여백 줄이기 */
+.study-body { padding-left: 4px; padding-right: 4px; }
+.view-body { padding-left: 6px; padding-right: 6px; }
+.ai-card { padding: 10px 8px 8px; border-width: 1px; border-radius: 12px; }
+.deep-box, .ai-verse, .wcard, .name-card { padding: 8px 8px; }
+.deep-qa { padding-left: 8px; }
+.ai-points { padding-left: 18px; }
+.bg-card { margin-left: 0; margin-right: 0; padding: 8px 8px; }
+.book-intro { margin-left: 0; margin-right: 0; }
+.bi-head { padding-left: 8px; padding-right: 8px; }
+.bi-body { padding-left: 8px; padding-right: 8px; }
+.para-sum { margin-left: 0; margin-right: 0; padding: 6px 8px; }
+button.para-sum.fail { width: 100%; }
+.topic-card { padding: 10px 8px; border-width: 1px; }
+.tips { padding: 12px 10px; }
+.tips ul { padding-left: 16px; }
+.orig-kor { padding: 10px 8px; }
+
+/* ③ 🧭 이 장의 흐름: "1–6절"을 왼쪽에 두고, 글은 그 옆에서 시작해 아래로는 좌우 끝까지 */
+.flow-item { display: block; }
+.flow-item::after { content: ''; display: block; clear: both; }
+.flow-range { float: left; min-width: 0; margin: 2px 8px 2px 0; padding: 2px 7px; }
+.flow-body { display: block; min-width: 0; }
+/* 흐름: [1–6절] 제목 · 설명을 한 덩어리로 이어서 → 배지 바로 옆에서 시작해 좌우 꽉 차게 */
+.flow-item { text-align: justify; }
+.flow-range { float: none; display: inline-block; margin: 0 6px 0 0; vertical-align: baseline; line-height: 1.35; }
+.flow-body, .flow-title, .flow-gist { display: inline; margin: 0; }
+.flow-title { margin-right: 6px; }
+.flow-title::after { content: ' —'; font-weight: 400; color: var(--muted); }
