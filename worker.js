@@ -44,6 +44,19 @@ const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니�
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"topic":"장 주제"}`;
 
+const TOPIC_PARA_PROMPT = `Reasoning: low
+당신은 한국어 성경(개역개정) 편집자입니다. 성경을 오래 읽어 온 성도가 한 장을 읽기 전에 내용을 미리 파악하도록 돕습니다.
+주어진 장의 주제 한 문장과, 단락마다 짧은 내용 요약을 쓰세요.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"topic":"장 전체 주제 한 문장 (40자 이내)","paras":[{"v":1,"sum":"이 단락의 내용 요약"}]}
+규칙:
+- topic: 그 장의 핵심 내용이 한눈에 들어오게, 개역개정 낱말을 살려 씁니다. 예) 마태복음 5장 → "산상수훈: 천국 백성의 복과 더 나은 의"
+- paras: "단락 시작 절"이 주어지면 그 단락마다 정확히 하나씩, v에는 주어진 시작 절 번호를 그대로 씁니다.
+  단락 시작 절이 "(없음)"이면 내용의 흐름에 따라 2~6단락으로 나누고 v에 각 단락의 시작 절을 씁니다 (첫 단락은 1절).
+- sum: 그 단락에서 실제로 일어나는 일·말하는 내용을 3~4문장(120~220자)으로 요약합니다. 누가, 무엇을, 왜, 그래서 어떻게 되는지가 드러나게. 단락이 8개보다 많으면 2~3문장으로 짧게.
+- 내용 요약만 씁니다. 교훈·적용·기도·"우리도 ~해야 합니다" 같은 말은 절대 쓰지 마세요.
+- 존댓말(~합니다)로, 한국어 맞춤법과 띄어쓰기를 지키세요. 본문에 없는 내용은 지어내지 마세요.`;
+
 const VERSE_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 뻔한 설교 요약이 아니라 "이 구절이 정확히 무슨 뜻이고, 왜 그렇게 읽는지"를 깊고 구체적으로 알고 싶어 합니다.
 아래에 개역개정 구절, 앞뒤 본문, 그리고 고전 주석들의 영어 원문 발췌가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
@@ -146,26 +159,15 @@ ${CHAP_RULES}
 - flow: 장 전체를 빠짐없이 3~7단락으로 나눕니다 (from/to는 절 번호, 첫 단락은 1절부터, 마지막 단락은 마지막 절까지). 단락의 논리 관계(그러므로, 그러나, 이는 등)가 드러나게 씁니다.
 - key: 1~2개.`;
 
-const CHAP_OBS_PROMPT = `Reasoning: low
-${CHAP_ROLE}
-아래에 개역개정 한 장 전체가 주어집니다. 독자가 해설을 보기 전에 본문을 직접 꼼꼼히 관찰하도록 돕는 "관찰 질문"을 만들고, 각각의 답을 쓰세요.
-반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"questions":[{"q":"본문을 잘 보면 답을 찾을 수 있는 구체적인 질문","v":[1,4],"a":"본문에서 찾은 답과 그것이 이 장에서 갖는 의미 2~4문장"}]}
-규칙:
-${CHAP_RULES}
-- questions 4~5개. 반드시 본문 안에서 답을 찾을 수 있는 관찰 질문만 냅니다. 예: 반복되는 낱말과 그 뜻, 접속사(그러므로·그러나·이는)가 잇는 것, 대조되는 것, 인물의 말과 행동, 단락 사이의 흐름, 앞뒤 장과의 연결.
-- "당신은 어떻게 생각하나요?", "나에게 어떤 의미인가요?", "어떻게 살아야 할까요?" 같은 묵상·적용 질문은 절대 내지 마세요.
-- v: 그 질문과 관련된 절 번호 1~3개.
-- 쉬운 질문에서 깊은 질문 순서로 놓습니다.`;
-
 const CHAP_HARD_PROMPT = `${CHAP_ROLE}
 아래에 개역개정 한 장 전체, 단락 소제목, 고전 주석들의 영어 원문 발췌(일부)가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"hard":[{"q":"이 장에서 성도들이 실제로 많이 막히거나 오해하는 곳 (절 번호와 함께)","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 4~7문장. 견해가 갈리면 여러 견해를 공정하게"}],
- "canon":[{"ref":"성경 구절 (예: 창 3:17-19)","why":"이 장이 그 구절과 어떻게 이어지는지 — 구약의 약속과 배경, 인용, 같은 주제의 발전, 성취 등 1~2문장"}]}
+{"hard":[{"q":"이 장에서 성도들이 실제로 많이 막히거나 오해하는 곳 (절 번호와 함께)","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 5~8문장. 왜 어려운지(낱말·문화·논리 흐름·다른 구절과의 긴장)를 먼저 짚고, 견해가 갈리면 여러 견해를 근거와 함께 공정하게"}],
+ "canon":[{"ref":"성경 구절 (예: 창 3:17-19)","why":"이 장이 그 구절과 어떻게 이어지는지 — 구약의 약속과 배경, 인용, 같은 주제의 발전, 성취 등을 구체적으로 2~3문장"}]}
 규칙:
 ${CHAP_RULES}
-- hard 3~4개. canon 4~6개 (구약과 신약을 고르게, 성경 전체 이야기 속에서 이 장의 자리가 드러나게).
+- hard 5~6개. 뻔한 질문은 빼고, 실제로 읽다가 막히는 곳을 장 전체에서 고르게 고릅니다.
+- canon 6~8개. 구약과 신약을 고르게, 창조–타락–언약–이스라엘–그리스도–교회–완성으로 이어지는 성경 전체 이야기 속에서 이 장의 자리가 드러나게, 성경 순서대로 놓습니다.
 - 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 영어 자료는 자연스러운 한국어로 옮기세요.`;
 
 const CHAP_COMM_PROMPT = `Reasoning: low
@@ -173,19 +175,19 @@ ${CHAP_ROLE}
 아래에 성경 한 장의 단락 소제목과, 고전 주석 하나가 이 장 전체에 대해 쓴 영어 원문 발췌(장 전체에서 고르게 뽑은 것)가 주어집니다.
 이 주석이 이 장을 어떻게 읽는지 한국어로 정리하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"point":"이 주석이 이 장 전체를 어떻게 보는지 — 장의 핵심 주제와 구조를 어떻게 이해하는지, 특히 강조하는 절과 그 이유, 이 주석만의 독특한 해석과 근거 5~9문장. 절 번호를 밝히며"}
+{"point":"이 주석이 이 장 전체를 어떻게 보는지 — 장의 핵심 주제와 구조를 어떻게 이해하는지, 특히 강조하는 절과 그 이유, 이 주석만의 독특한 해석과 근거 6~10문장. 절 번호를 밝히며"}
 규칙:
 ${CHAP_RULES}
 - 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
 - 발췌가 이 장과 상관없는 내용뿐이면 {"point":""} 를 출력하세요.`;
 
-/** 폰이 보내 준 주석 발췌를 정리 (최대 8개, 합계 약 14000자) */
+/** 폰이 보내 준 주석 발췌를 정리 (v1.8: 주석 3가지 · 하나당 3400자까지, 합계 약 14000자) */
 function sourcesText(list) {
   let total = 0;
   const out = [];
   for (const s of (Array.isArray(list) ? list : []).slice(0, 8)) {
     const who = clip(s?.who, 40).trim();
-    const text = clip(s?.text, 2400).trim();
+    const text = clip(s?.text, 3400).trim();
     if (!who || !text || total + text.length > 14000) continue;
     total += text.length;
     out.push(`[${who}]\n${text}`);
@@ -306,11 +308,27 @@ async function handleAsk(request, env) {
   try {
     if (body.step === 'topic') {
       const verses = (Array.isArray(body.verses) ? body.verses : []).slice(0, 200);
-      const per = verses.length > 60 ? 50 : 120;
-      const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, 9000);
-      const heads = (Array.isArray(body.heads) ? body.heads : []).slice(0, 30)
-        .map(h => `${Number(h?.[0]) || 1}절 ${clip(h?.[1], 80)}`).join(' / ');
-      const ask = `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n단락 소제목: ${heads || '(없음)'}\n\n본문:\n${text}`;
+      const paras = !!body.paras;
+      // 단락 요약을 만들 때는 본문을 더 많이 읽음
+      const per = paras ? (verses.length > 80 ? 90 : 260) : (verses.length > 60 ? 50 : 120);
+      const text = verses.map((t, i) => `${i + 1} ${clip(t, per)}`).join('\n').slice(0, paras ? 13000 : 9000);
+      const hs = (Array.isArray(body.heads) ? body.heads : []).slice(0, 40);
+      const heads = hs.map(h => `${Number(h?.[0]) || 1}절 ${clip(h?.[1], 80)}`).join(' / ');
+      const starts = [...new Set(hs.map(h => Number(h?.[0]) || 1))].join(', ');
+      const ask = `${clip(body.book, 20)} ${Number(body.chapter) || 1}장 (모두 ${verses.length}절)\n단락 소제목: ${heads || '(없음)'}${paras ? `\n단락 시작 절: ${starts || '(없음)'}` : ''}\n\n본문:\n${text}`;
+      if (paras) {
+        let out = null;
+        for (let tries = 0; tries < 2; tries++) {
+          out = await runLLM(env, TOPIC_PARA_PROMPT, ask, { max_tokens: 7000 });
+          const t = clip(out?.topic, 120).trim();
+          if (t && !isSquashed(t) && Array.isArray(out?.paras) && out.paras.length) break;
+        }
+        const topic = clip(out?.topic, 120).trim();
+        const list = (Array.isArray(out?.paras) ? out.paras : []).slice(0, 40)
+          .map(x => ({ v: Number(x?.v) || 0, sum: clip(x?.sum, 600).trim() })).filter(x => x.v > 0 && x.sum);
+        if (!topic || isSquashed(topic) || !list.length) return json({ error: 'AI가 단락 요약을 쓰지 못했습니다' }, 502);
+        return json({ topic, paras: list });
+      }
       // 가끔 AI가 띄어쓰기 없이 붙여 쓰는 경우가 있어, 그러면 한 번 더 요청
       let topic = '';
       for (let tries = 0; tries < 2; tries++) {
@@ -357,21 +375,13 @@ async function handleAsk(request, env) {
         if (!res.flow.length) return json({ error: 'AI가 흐름을 쓰지 못했습니다' }, 502);
         return json(res);
       }
-      if (body.step === 'chap-obs') {
-        const out = await runLLM(env, CHAP_OBS_PROMPT, `${head}\n\n본문:\n${text}`, { max_tokens: 4000 });
-        const questions = arr(out.questions, 6).map(x => ({
-          q: clip(x?.q, 300), a: clip(x?.a, 1500), v: arr(x?.v, 4).map(Number).filter(n => n > 0),
-        })).filter(x => x.q && x.a);
-        if (!questions.length) return json({ error: 'AI가 질문을 만들지 못했습니다' }, 502);
-        return json({ questions });
-      }
       if (body.step === 'chap-hard') {
         const out = await runLLM(env, CHAP_HARD_PROMPT,
           `${head}\n\n본문:\n${text}\n\n고전 주석 발췌(영어 원문, 일부):\n${sourcesText(body.sources)}`,
-          { max_tokens: 8000 });
+          { max_tokens: 11000 });
         const res = {
-          hard: arr(out.hard, 5).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 2500) })).filter(x => x.q && x.a),
-          canon: arr(out.canon, 8).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 600) })).filter(l => l.ref),
+          hard: arr(out.hard, 7).map(x => ({ q: clip(x?.q, 300), a: clip(x?.a, 3000) })).filter(x => x.q && x.a),
+          canon: arr(out.canon, 9).map(l => ({ ref: clip(l?.ref, 40), why: clip(l?.why, 900) })).filter(l => l.ref),
         };
         if (!res.hard.length && !res.canon.length) return json({ error: 'AI가 내용을 쓰지 못했습니다' }, 502);
         return json(res);
@@ -379,9 +389,9 @@ async function handleAsk(request, env) {
       if (body.step === 'chap-comm') {
         const who = clip(body.who, 40);
         const out = await runLLM(env, CHAP_COMM_PROMPT,
-          `${head}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 5000)}`,
-          { max_tokens: 4000 });
-        return json({ who, point: clip(out.point, 3000) });
+          `${head}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 6800)}`,
+          { max_tokens: 5000 });
+        return json({ who, point: clip(out.point, 3500) });
       }
     }
     if (body.step === 'verse-core') {
@@ -421,7 +431,7 @@ async function handleAsk(request, env) {
     if (body.step === 'verse-comm') {
       const who = clip(body.who, 40);
       const out = await runLLM(env, VERSE_COMM_PROMPT,
-        `구절: ${q}\n${clip(body.text, 2000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 1500)}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 4000)}`,
+        `구절: ${q}\n${clip(body.text, 2000)}\n\n앞뒤 본문(참고):\n${clip(body.around, 1500)}\n\n주석: ${who}\n발췌(영어 원문):\n${clip(body.source, 5000)}`,
         { max_tokens: 4000 });
       return json({ who, point: clip(out.point, 2500) });
     }

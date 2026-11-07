@@ -5,8 +5,20 @@ import ToolIcons from './ToolIcons';
 import { copyText, toast } from './utils';
 import { BOOKS } from './books';
 import { matchSegments, searchSentence, SentenceHit } from './sentenceSearch';
-import { addRecentSearch, goTo, openTab, SearchMode, setState, useStore } from './store';
+import { addRecentSearch, goTo, openTab, setState, useStore } from './store';
 import { PageChooser } from './BookmarksView';
+import { findTopics, spanLabel, spanVerses, TopicHit } from './topics';
+import { cacheGet, cacheSet, NS } from './study';
+import ChapterStudy from './ChapterStudy';
+
+/* ================================================================
+   🔎 검색 (v1.8: 검색창 하나)
+   - 장절(요3:16) → 바로 이동
+   - 주제(팔복 · 주기도문 · 탕자 …) → 주제 사전 (인터넷 없이, 음성 오타도)
+   - 낱말 → 단어 검색
+   - 긴 문장이거나 결과가 없으면 → 비슷한 구절 + AI (한 번 받은 AI 답은 저장해 두고 바로)
+   ================================================================ */
+const qkey = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
 const PAGE = 100;
 
@@ -14,7 +26,6 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
   const lastPage = useStore(s => s.lastPage);
   const pageCount = useStore(s => s.settings.pageCount);
   const recent = useStore(s => s.recentSearches);
-  const mode = useStore(s => s.searchMode);
   const curBook = useStore(s => s.pages[Math.min(s.lastPage, s.settings.pageCount - 1)].book);
 
   const [q, setQ] = useState('');
@@ -28,19 +39,25 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
   const [shown, setShown] = useState(PAGE);
   const [busy, setBusy] = useState(false);
   const settings = useStore(s => s.settings);
-  const [ai, setAi] = useState<{ stage?: string; answer?: AiAnswer; error?: string } | null>(null);
+  const [ai, setAi] = useState<{ stage?: string; answer?: AiAnswer; error?: string; saved?: boolean } | null>(null);
+  const [topics, setTopics] = useState<TopicHit[]>([]);
+  const [openTopic, setOpenTopic] = useState<string | null>(null);
+  const [deep, setDeep] = useState<{ book: number; chapter: number } | null>(null);
+  const [runRef, setRunRef] = useState<ReturnType<typeof parseRef>>(null);
   const aiCtl = useRef<AbortController | null>(null);
   useEffect(() => { if (active) setTarget(Math.min(lastPage, pageCount - 1)); }, [active, lastPage, pageCount]);
 
-  const startAi = (s: string) => {
+  const startAi = (s: string, fresh = false) => {
     aiCtl.current?.abort();
     if (!settings.aiSearch) { setAi(null); return; }
+    const saved = !fresh && cacheGet<AiAnswer>(NS.find, qkey(s));
+    if (saved) { setAi({ answer: saved, saved: true }); return; }
     if (!navigator.onLine) { setAi({ error: '인터넷에 연결되어 있지 않아 AI 설명은 건너뜁니다. 아래는 폰 안에서 찾은 결과입니다.' }); return; }
     const ctl = new AbortController();
     aiCtl.current = ctl;
     setAi({ stage: '질문을 이해하는 중…' });
     askAi(data, s, stage => { if (!ctl.signal.aborted) setAi({ stage }); }, ctl.signal)
-      .then(answer => { if (!ctl.signal.aborted) setAi({ answer }); })
+      .then(answer => { if (!ctl.signal.aborted) { setAi({ answer }); if (answer.matches.length) cacheSet(NS.find, qkey(s), answer); } })
       .catch(e => { if (!ctl.signal.aborted) setAi({ error: (e as Error).message || 'AI 답변을 받지 못했습니다' }); });
   };
   const copyOpts = { bookStyle: settings.copyBookStyle, refPosition: settings.copyRefPosition, verseNumbers: settings.copyVerseNumbers };
@@ -48,38 +65,48 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
     toast((await copyText(buildCopyText(data, b, c, [v], copyOpts))) ? '복사했습니다 📋' : '복사하지 못했습니다');
   };
 
-  const ref = q.trim() ? parseRef(q, data) : null;
-
-  const setMode = (m: SearchMode) => {
-    setState(() => ({ searchMode: m }));
-    setHits(null); setSHits(null);
-    aiCtl.current?.abort(); setAi(null);
+  /** 비슷한 구절(폰 안) + AI */
+  const runSentence = (s: string, sc: SearchScope) => {
+    startAi(s);
+    setBusy(true);
+    // 처음 한 번은 색인을 만드느라 1초 정도 걸릴 수 있어 화면을 먼저 그린 뒤 실행
+    setTimeout(() => {
+      setSHits(searchSentence(data, s, sc, 30));
+      setSQuery(s);
+      setBusy(false);
+    }, 30);
   };
 
-  const run = (query = q, m: SearchMode = mode) => {
+  const run = (query = q) => {
     const s = query.trim();
     if (!s) return;
     (document.activeElement as HTMLElement)?.blur();
     const sc: SearchScope = scope === 'book' ? curBook : scope;
     addRecentSearch(s);
-    if (m === 'word') {
-      setHits(searchWords(data, s, sc));
-      setSHits(null);
-      setTerms(s.split(/\s+/));
-      setShown(PAGE);
-      setBookFilter(null);
-      aiCtl.current?.abort(); setAi(null);
-    } else {
-      startAi(s);
-      setBusy(true);
-      setHits(null);
-      // 처음 한 번은 색인을 만드느라 1초 정도 걸릴 수 있어 화면을 먼저 그린 뒤 실행
-      setTimeout(() => {
-        setSHits(searchSentence(data, s, sc, 30));
-        setSQuery(s);
-        setBusy(false);
-      }, 30);
-    }
+    aiCtl.current?.abort(); setAi(null); setSHits(null); setOpenTopic(null);
+    const r = parseRef(s, data);
+    setRunRef(r);
+    const t = findTopics(s);
+    setTopics(t);
+    const strong = t.some(h => h.score >= 80);
+    const hasNum = /\d/.test(s);
+    const words = r && hasNum ? [] : searchWords(data, s, sc);
+    setHits(r && hasNum ? null : words);
+    setTerms(s.split(/\s+/));
+    setShown(PAGE);
+    setBookFilter(null);
+    if (r && hasNum) return;
+    // 오타일지도 모르는 주제 하나만 비슷하면 그것을 펼쳐 보여 줌
+    if (!strong && words.length < 5 && t.length) setOpenTopic(t[0].topic.name);
+    const long = s.split(/\s+/).length >= 3 || s.replace(/\s/g, '').length >= 10;
+    if (r || (strong && !long)) return;
+    if (!words.length || (long && words.length < 5)) runSentence(s, sc);
+  };
+
+  const sentenceNow = () => {
+    const s = q.trim();
+    if (!s) return;
+    runSentence(s, scope === 'book' ? curBook : scope);
   };
 
   const open = (book: number, chapter: number, verse?: number) => {
@@ -94,44 +121,53 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
   }, [hits]);
   const filtered = hits ? (bookFilter === null ? hits : hits.filter(h => h.book === bookFilter)) : [];
   const ot = hits?.filter(h => h.book < 39).length ?? 0;
-  const nothingYet = hits === null && sHits === null && !busy && !ai;
+  const nothingYet = hits === null && sHits === null && !busy && !ai && !topics.length && !runRef;
+  const bigTopics = topics.filter(h => h.score >= 80 || h.topic.name === openTopic);
+  const smallTopics = topics.filter(h => !bigTopics.includes(h));
+  const copyTopic = async (h: TopicHit) => {
+    const parts = h.topic.spans.flatMap(sp => {
+      const out: string[] = [];
+      for (let c = sp.c1; c <= sp.c2; c++) {
+        const vs = spanVerses(data, { ...sp, c1: c, c2: c, v1: c === sp.c1 ? sp.v1 : 1, v2: c === sp.c2 ? sp.v2 : 999 }).map(x => x.v);
+        if (vs.length) out.push(buildCopyText(data, sp.book, c, vs, copyOpts));
+      }
+      return out;
+    });
+    toast((await copyText(parts.join('\n\n'))) ? '복사했습니다 📋' : '복사하지 못했습니다');
+  };
 
   return (
     <div className={'view' + (active ? '' : ' inactive')}>
       <header className="vhead"><h1>검색</h1><ToolIcons /></header>
       <div className="view-body">
-        <div className="seg mode-seg">
-          <button className={mode === 'word' ? 'on' : ''} onClick={() => setMode('word')}>🔤 단어 검색</button>
-          <button className={mode === 'sentence' ? 'on' : ''} onClick={() => setMode('sentence')}>💬 문장으로 찾기</button>
-        </div>
-
         <div className="search-box">
-          {mode === 'word' ? (
-            <input
-              type="search"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && run()}
-              placeholder="단어 또는 장절  예) 사랑 · 믿음 소망 · 요3:16"
-              enterKeyHint="search"
-            />
-          ) : (
-            <textarea
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
-              placeholder="기억나는 대로 문장을 쓰세요&#10;예) 여호와는 내 목자 부족함 없다"
-              rows={2}
-              enterKeyHint="search"
-            />
-          )}
+          <input
+            type="search"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && run()}
+            placeholder="낱말 · 주제 · 장절 · 문장 무엇이든"
+            enterKeyHint="search"
+          />
           <button className="primary" onClick={() => run()} disabled={busy}>{busy ? '…' : '찾기'}</button>
         </div>
 
-        {ref && mode === 'word' && (
-          <button className="ref-jump" onClick={() => open(ref.book, ref.chapter, ref.verse)}>
-            📖 <b>{refLabel(ref.book, ref.chapter, ref.verse ? (ref.verseEnd ? range(ref.verse, ref.verseEnd) : [ref.verse]) : undefined)}</b> 으로 바로 이동 ›
+        {runRef && (
+          <button className="ref-jump" onClick={() => open(runRef.book, runRef.chapter, runRef.verse)}>
+            📖 <b>{refLabel(runRef.book, runRef.chapter, runRef.verse ? (runRef.verseEnd ? range(runRef.verse, runRef.verseEnd) : [runRef.verse]) : undefined)}</b> 으로 바로 이동 ›
           </button>
+        )}
+
+        {/* ----- 📖 주제 사전 ----- */}
+        {bigTopics.map(h => (
+          <TopicCard key={h.topic.name} h={h} data={data} guess={h.score < 65}
+            onOpen={(b, c, v) => open(b, c, v)} onDeep={(b, c) => setDeep({ book: b, chapter: c })} onCopy={() => copyTopic(h)} />
+        ))}
+        {smallTopics.length > 0 && (
+          <div className="topic-chips">
+            <span className="muted">📖 관련 주제</span>
+            {smallTopics.map(h => <button key={h.topic.name} className="chip" onClick={() => setOpenTopic(h.topic.name)}>{h.topic.name}</button>)}
+          </div>
         )}
 
         <div className="toolbar">
@@ -156,28 +192,17 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
           </div>
         )}
 
-        {nothingYet && (mode === 'word' ? (
+        {nothingYet && (
           <div className="tips">
-            <b>단어 검색 도움말</b>
+            <b>검색창 하나로 무엇이든</b>
             <ul>
-              <li>여러 단어를 띄어 쓰면 <b>모두 들어 있는</b> 구절을 찾습니다. (예: <i>믿음 소망</i>)</li>
-              <li><i>요3:16</i>, <i>시23</i>, <i>요한복음 3장 16절</i>처럼 쓰면 바로 이동할 수 있습니다.</li>
-              <li>정확한 단어가 기억나지 않으면 <b>💬 문장으로 찾기</b>를 써 보세요.</li>
+              <li><b>낱말</b>: <i>사랑</i>, <i>믿음 소망</i> (띄어 쓰면 모두 들어 있는 구절)</li>
+              <li><b>장절</b>: <i>요3:16</i>, <i>시23</i>, <i>요한복음 3장 16절</i> → 바로 이동</li>
+              <li><b>주제</b>: <i>팔복</i>, <i>주기도문</i>, <i>탕자</i>, <i>전신갑주</i>, <i>오병이어</i> … 약 280가지 (인터넷 없이 바로, 음성 입력 오타도 괜찮습니다)</li>
+              <li><b>기억나는 문장</b>: <i>능력 주시는 분 안에서 모든 것을 할 수 있다</i> → 비슷한 구절을 찾고, 인터넷이 되면 AI가 설명합니다. 한 번 받은 AI 답은 저장되어 다음엔 바로 나옵니다.</li>
             </ul>
           </div>
-        ) : (
-          <div className="tips">
-            <b>문장으로 찾기 도움말</b>
-            <ul>
-              <li>정확하지 않아도 <b>기억나는 대로</b> 쓰면 비슷한 구절을 찾습니다.</li>
-              <li>예) <i>하나님이 세상을 너무 사랑해서 아들을 보내주셨다</i> → 요 3:16</li>
-              <li>예) <i>능력 주시는 분 안에서 모든 것을 할수있다</i> → 빌 4:13</li>
-              <li>띄어쓰기나 말끝(~다, ~라)이 달라도 괜찮습니다. 성경에 나오는 낱말이 많이 들어갈수록 더 잘 찾습니다.</li>
-              <li>인터넷이 되면 <b>AI가 질문을 이해해서</b> 구절과 뜻을 설명해 줍니다. 음성 입력 오타가 있어도 괜찮습니다.<br />예) <i>노아와 다니엘과 욥이 있어도 자기만 구원받는다는 성경 구절</i></li>
-              <li>인터넷이 없으면 폰 안에서 비슷한 글자의 구절을 찾습니다.</li>
-            </ul>
-          </div>
-        ))}
+        )}
 
         {busy && <div className="busy"><div className="spinner small" /> 찾는 중…</div>}
 
@@ -218,7 +243,8 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
                     </>
                   )}
                   <div className="ai-foot">
-                    <button onClick={() => startAi(sQuery)}>↻ 다시 묻기</button>
+                    {ai.saved && <span className="muted">저장된 답 · </span>}
+                    <button onClick={() => startAi(sQuery || q, true)}>↻ 다시 묻기</button>
                   </div>
                 </>
               );
@@ -248,14 +274,14 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
         )}
 
         {/* ----- 단어 검색 결과 ----- */}
-        {hits !== null && (
+        {hits !== null && (hits.length > 0 || (sHits === null && !busy && !bigTopics.length)) && (
           <>
             <div className="result-summary">
               총 <b>{hits.length.toLocaleString()}</b>절 {hits.length > 0 && <span className="muted">(구약 {ot} · 신약 {hits.length - ot})</span>}
             </div>
-            {hits.length === 0 && (
-              <button className="ref-jump" onClick={() => { setMode('sentence'); run(q, 'sentence'); }}>
-                💬 정확히 일치하는 구절이 없습니다. <b>문장으로 찾기</b>로 비슷한 구절을 찾아볼까요? ›
+            {hits.length > 0 && sHits === null && !busy && (
+              <button className="ref-jump sent-btn" onClick={sentenceNow}>
+                💬 원하는 구절이 없나요? <b>비슷한 구절 · AI로 찾기</b> ›
               </button>
             )}
             {perBook.length > 1 && (
@@ -279,6 +305,59 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
             )}
           </>
         )}
+      </div>
+      {deep && <ChapterStudy data={data} book={deep.book} chapter={deep.chapter} page={target} onClose={() => setDeep(null)} onAfterGo={() => openTab(target as 0)} />}
+    </div>
+  );
+}
+
+/** 📖 주제 카드: 범위 · 함께 볼 곳 · 본문 · [본문으로 가기] [📘 장 깊은 해설] [📋 복사] */
+function TopicCard({ h, data, guess, onOpen, onDeep, onCopy }: {
+  h: TopicHit; data: BibleData; guess: boolean;
+  onOpen: (b: number, c: number, v: number) => void; onDeep: (b: number, c: number) => void; onCopy: () => void;
+}) {
+  const [all, setAll] = useState(false);
+  const t = h.topic;
+  const groups = t.spans.map(sp => ({ sp, vs: spanVerses(data, sp) }));
+  const total = groups.reduce((n, g) => n + g.vs.length, 0);
+  const LIMIT = 12;
+  let left = all ? Infinity : LIMIT;
+  const first = t.spans[0];
+  return (
+    <div className="topic-card">
+      {guess && <div className="tc-guess">혹시 이것을 찾으셨나요?</div>}
+      <div className="tc-head">
+        <span className="tc-name">📖 {t.name}</span>
+        <span className="tc-range">{t.spans.map(sp => spanLabel(sp, data)).join(' · ')}</span>
+      </div>
+      {h.via && <div className="tc-via">“{h.via}”</div>}
+      {t.also.length > 0 && (
+        <div className="tc-also">함께 보기 {t.also.map((sp, i) => (
+          <button key={i} onClick={() => onOpen(sp.book, sp.c1, sp.v1)}>{spanLabel(sp, data)}</button>
+        ))}</div>
+      )}
+      <div className="tc-verses">
+        {groups.map((g, gi) => {
+          if (left <= 0) return null;
+          const show = g.vs.slice(0, left);
+          left -= show.length;
+          return (
+            <div key={gi}>
+              {groups.length > 1 && <div className="tc-sub">{spanLabel(g.sp, data)}</div>}
+              {show.map(x => (
+                <p key={x.c + ':' + x.v} onClick={() => onOpen(g.sp.book, x.c, x.v)}>
+                  <b>{g.sp.c1 !== g.sp.c2 ? `${x.c}:${x.v}` : x.v}</b> {x.t}
+                </p>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      {total > LIMIT && <button className="tc-more" onClick={() => setAll(a => !a)}>{all ? '접기' : `전체 ${total}절 보기`}</button>}
+      <div className="tc-acts">
+        <button className="primary" onClick={() => onOpen(first.book, first.c1, first.v1)}>본문으로 가기</button>
+        <button onClick={() => onDeep(first.book, first.c1)}>📘 장 깊은 해설</button>
+        <button onClick={onCopy}>📋 복사</button>
       </div>
     </div>
   );

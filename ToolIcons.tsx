@@ -1,10 +1,30 @@
+import { useSyncExternalStore } from 'react';
 import { openTab, Tab, useStore } from './store';
 
-/** 화면 오른쪽 위의 북마크 · 검색 · 설정 버튼 */
+/* ---------- ⏬ 자동 스크롤 (켜짐/멈춤 — 앱을 다시 켜면 꺼진 상태) ---------- */
+export interface AutoState { on: boolean; paused: boolean }
+let auto: AutoState = { on: false, paused: false };
+const autoL = new Set<() => void>();
+export function setAuto(p: Partial<AutoState>) { auto = { ...auto, ...p }; autoL.forEach(l => l()); }
+export function useAuto(): AutoState {
+  return useSyncExternalStore(cb => { autoL.add(cb); return () => { autoL.delete(cb); }; }, () => auto);
+}
+
+/** 화면 오른쪽 위의 (자동 스크롤) · 북마크 · 검색 · 설정 버튼 */
 export default function ToolIcons() {
   const tab = useStore(s => s.tab);
+  const a = useAuto();
   return (
     <div className="tools">
+      {typeof tab === 'number' && (
+        <button className={'tool-btn' + (a.on ? ' on' : '')} aria-label="자동 스크롤"
+          onClick={() => setAuto(a.on ? { on: false } : { on: true, paused: false })}>
+          <svg viewBox="0 0 24 24" width="22" height="22">
+            <path d="M6 5l6 6 6-6M6 12l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>자동</span>
+        </button>
+      )}
       <ToolBtn tab="bookmarks" cur={tab} label="북마크">
         <path d="M6 3h12v18l-6-5-6 5z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
       </ToolBtn>

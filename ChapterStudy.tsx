@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
 import { BibleData } from './bible';
 import { BOOKS } from './books';
-import { goTo, setObsNote, useStore } from './store';
+import { goTo } from './store';
 import { cacheGet, cacheSet, ChapAi, ChapProgress, COMMENTARY_CREDIT, NS, runDeepChapter } from './study';
 import { Go, RefLink, Waiting } from './StudyView';
 import { useBackClose } from './utils';
-import { Chev } from './ToolIcons';
 
 /* ================================================================
-   📘 장 깊은 해설 (v1.7)
-   🔎 먼저 생각해 보기 (관찰 질문 — 적지 않아도 "답 보기"로 바로 볼 수 있음)
+   📘 장 깊은 해설
+   (v1.8: "먼저 생각해 보기"는 빼서 더 빠르게)
    🧭 흐름 · ⭐ 핵심 절 · ↩️ 앞뒤 장 · 📚 주석가들 · ❓ 어려운 곳 · 🌏 성경 전체 속에서
    ================================================================ */
-interface Props { data: BibleData; book: number; chapter: number; page: number; onClose: () => void }
+interface Props { data: BibleData; book: number; chapter: number; page: number; onClose: () => void; onAfterGo?: () => void }
 
 function useDeepChapter(key: string, run: (s: AbortSignal, on: (p: ChapProgress) => void) => Promise<ChapAi>) {
   const [val, setVal] = useState<ChapAi | undefined>(() => cacheGet<ChapAi>(NS.chap, key));
@@ -33,7 +32,7 @@ function useDeepChapter(key: string, run: (s: AbortSignal, on: (p: ChapProgress)
   return { val, prog, state, err, again: () => setN(x => x + 1) };
 }
 
-export default function ChapterStudy({ data, book, chapter, page, onClose }: Props) {
+export default function ChapterStudy({ data, book, chapter, page, onClose, onAfterGo }: Props) {
   useBackClose(true, onClose);
   const key = `${book}:${chapter}`;
   const unit = book === 18 ? '편' : '장';
@@ -41,13 +40,10 @@ export default function ChapterStudy({ data, book, chapter, page, onClose }: Pro
   const { val, prog, state, err, again } = useDeepChapter(key, (s, on) => runDeepChapter(data, book, chapter, s, on));
   const ai = prog ? prog.ai : val;
   const busy = state === 'loading';
-  const go: Go = r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); };
+  const go: Go = r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); onAfterGo?.(); };
   const goV = (v: number) => go({ book, chapter, verse: Math.min(Math.max(1, v), max) });
   const commWait = prog ? prog.comm.filter(c => c.state === 'wait').map(c => c.who) : [];
-  const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (['obs', 'flow', 'hard'] as const).filter(k => prog[k] === 'fail').length : 0;
-  const [allOpen, setAllOpen] = useState(false);
-  const [openSet, setOpenSet] = useState<Record<number, boolean>>({});
-  const isOpen = (i: number) => openSet[i] ?? allOpen;
+  const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (['flow', 'hard'] as const).filter(k => prog[k] === 'fail').length : 0;
 
   return (
     <div className="overlay study chap-study">
@@ -61,25 +57,6 @@ export default function ChapterStudy({ data, book, chapter, page, onClose }: Pro
       <div className="study-body">
         {state === 'error' && !val && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={again}>다시 시도</button></div>}
         {busy && !prog && !val && <Waiting text="준비 중…" />}
-
-        {/* 🔎 먼저 생각해 보기 */}
-        {ai && (
-          <div className="ai-card deep obs-card">
-            <div className="ai-head obs-head">
-              <span>🔎 먼저 생각해 보기</span>
-              {ai.questions.length > 0 && (
-                <button className="obs-all" onClick={() => { setAllOpen(o => !o); setOpenSet({}); }}>{allOpen ? '답 모두 접기' : '답 모두 보기'}</button>
-              )}
-            </div>
-            {prog && prog.obs === 'wait' && <Waiting text="관찰 질문을 만드는 중…" />}
-            {ai.questions.length > 0 && <p className="obs-tip">본문을 다시 보며 생각해 보세요. 적지 않아도 <b>💡 답 보기</b>를 누르면 바로 보입니다.</p>}
-            {ai.questions.map((x, i) => (
-              <ObsQuestion key={i} n={i + 1} q={x} noteKey={`${key}:${x.q.slice(0, 40)}`} open={isOpen(i)}
-                onToggle={() => setOpenSet(o => ({ ...o, [i]: !isOpen(i) }))} verses={data[book][chapter - 1]} />
-            ))}
-            {prog?.obs === 'fail' && <div className="ai-err">관찰 질문을 받지 못했습니다.</div>}
-          </div>
-        )}
 
         {/* 📘 장 깊은 해설 */}
         {ai && (
@@ -121,7 +98,7 @@ export default function ChapterStudy({ data, book, chapter, page, onClose }: Pro
                 {commWait.length > 0 && <Waiting text={prog?.collecting && commWait.length === prog.comm.length ? '주석 자료를 모으는 중…' : `${commWait.join(' · ')} 읽는 중…`} />}</>
             )}
 
-            {prog && prog.hard === 'wait' && <><div className="ai-sec">❓ 어려운 곳 풀이</div><Waiting text={prog.collecting ? '주석 자료를 모은 뒤 씁니다…' : '어려운 곳 풀이와 성경 전체 속 자리를 쓰는 중…'} /></>}
+            {prog && prog.hard === 'wait' && <><div className="ai-sec">❓ 어려운 곳 풀이</div><Waiting text={prog.collecting ? '주석 자료를 모은 뒤 씁니다…' : '어려운 곳 풀이와 성경 전체 이야기를 쓰는 중…'} /></>}
             {ai.hard.length > 0 && (
               <><div className="ai-sec">❓ 어려운 곳 풀이</div>
                 {ai.hard.map((x, i) => (
@@ -143,37 +120,6 @@ export default function ChapterStudy({ data, book, chapter, page, onClose }: Pro
         )}
         <p className="desc small">AI 해설은 참고용입니다. 성경 본문과 함께 분별하며 읽어 주세요.<br />{COMMENTARY_CREDIT}</p>
       </div>
-    </div>
-  );
-}
-
-/** 관찰 질문 하나: ✏️ 내 생각 적기(선택) · 💡 답 보기(언제든) */
-function ObsQuestion({ n, q, noteKey, open, onToggle, verses }: {
-  n: number; q: ChapAi['questions'][number]; noteKey: string; open: boolean; onToggle: () => void; verses: string[];
-}) {
-  const max = verses.length;
-  const [showV, setShowV] = useState<number | null>(null);
-  const saved = useStore(s => s.obsNotes[noteKey] || '');
-  const [writing, setWriting] = useState(false);
-  const [text, setText] = useState(saved);
-  useEffect(() => { setText(saved); }, [saved]);
-  const vs = (q.v || []).filter(v => v >= 1 && v <= max);
-  return (
-    <div className="obs-q">
-      <div className="deep-q">Q{n}. {q.q}</div>
-      {vs.length > 0 && <div className="obs-vs">{vs.map(v => <button key={v} className={'obs-v' + (showV === v ? ' on' : '')} onClick={() => setShowV(x => (x === v ? null : v))}>{v}절</button>)}</div>}
-      {showV && <div className="obs-vtext"><b>{showV}</b> {verses[showV - 1]}</div>}
-      {writing ? (
-        <textarea className="obs-note" autoFocus value={text} placeholder="생각나는 대로 짧게 적어 보세요" rows={3}
-          onChange={e => setText(e.target.value)} onBlur={() => { setObsNote(noteKey, text); setWriting(false); }} />
-      ) : saved ? (
-        <button className="obs-mine" onClick={() => setWriting(true)}><b>✏️ 내 생각</b> {saved}</button>
-      ) : null}
-      <div className="obs-btns">
-        {!writing && !saved && <button onClick={() => setWriting(true)}>✏️ 내 생각 적기</button>}
-        <button className={'obs-ans' + (open ? ' on' : '')} onClick={onToggle}>💡 {open ? '답 접기' : '답 보기'} <Chev open={open} /></button>
-      </div>
-      {open && <div className="deep-a obs-a">{q.a}</div>}
     </div>
   );
 }

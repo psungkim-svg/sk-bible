@@ -57,6 +57,8 @@ export interface Settings {
   descFontSize: number;       // 설명 글씨 (AI 해설·소개·낱말 풀이 등)
   titleFontSize: number;      // 본문 위 성경 제목 (예: 전도서 8장)
   descLineHeight: number;     // 설명(해설·주석 등) 줄 간격
+  paraSum: boolean;           // 📝 단락 요약 (AI)
+  scrollSpeed: number;        // ⏬ 자동 스크롤 속도 1~10
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -72,13 +74,8 @@ export interface AppState {
   recentSearches: string[];
   searchMode: SearchMode;
   bmMode: 'bm' | 'mem';   // 북마크 화면: 북마크 / 암송
-  obs: ObsState;           // 🔍 관찰 돕기
-  myHeads: Record<string, string>;  // 내 단락 제목 "b:c:v"
-  obsNotes: Record<string, string>; // 관찰 질문에 적은 내 생각 "b:c:질문"
 }
 
-export interface ObsState { on: boolean; conj: boolean; heads: boolean; scope: 'chapter' | 'book' }
-const DEFAULT_OBS: ObsState = { on: false, conj: true, heads: false, scope: 'chapter' };
 
 const DEFAULT_PAGES: PageState[] = [
   { book: 0, chapter: 1, verse: 1, history: [] },   // 창세기 1
@@ -125,6 +122,8 @@ export const DEFAULT_SETTINGS: Settings = {
   descFontSize: 20,
   titleFontSize: 22,
   descLineHeight: 1.45,
+  paraSum: true,
+  scrollSpeed: 4,
 };
 
 const KEY = 'sk-bible-v1';
@@ -133,17 +132,17 @@ function load(): AppState {
   const base: AppState = {
     tab: 0, lastPage: 0, pages: DEFAULT_PAGES, bookmarks: [], memory: [], highlights: {},
     settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word', bmMode: 'bm',
-    obs: DEFAULT_OBS, myHeads: {}, obsNotes: {},
   };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return base;
     const s = JSON.parse(raw);
+    // v1.8: 관찰 돕기를 빼면서 예전 저장분 정리
+    delete s.obs; delete s.myHeads; delete s.obsNotes;
     return {
       ...base, ...s,
       tab: 0, lastPage: 0, // 앱을 켜면 항상 페이지 1
       settings: withDefaults(s.settings),
-      obs: { ...DEFAULT_OBS, ...(s.obs || {}) },
       pages: DEFAULT_PAGES.map((d, i) => ({ ...d, ...(s.pages?.[i] || {}), flash: undefined })),
     };
   } catch {
@@ -302,31 +301,14 @@ export function setSettings(patch: Partial<Settings>) {
   setState(s => ({ settings: { ...s.settings, ...patch } }));
 }
 
-/* ---------- 🔍 관찰 돕기 ---------- */
-export function setObs(patch: Partial<ObsState>) { setState(s => ({ obs: { ...s.obs, ...patch } })); }
-export function setMyHead(key: string, text: string) {
-  setState(s => {
-    const myHeads = { ...s.myHeads };
-    if (text.trim()) myHeads[key] = text; else delete myHeads[key];
-    return { myHeads };
-  });
-}
-export function setObsNote(key: string, text: string) {
-  setState(s => {
-    const obsNotes = { ...s.obsNotes };
-    if (text.trim()) obsNotes[key] = text; else delete obsNotes[key];
-    return { obsNotes };
-  });
-}
-
 export function addRecentSearch(q: string) {
   setState(s => ({ recentSearches: [q, ...s.recentSearches.filter(x => x !== q)].slice(0, 12) }));
 }
 
 /* ---------- 백업 (폰 바꿀 때) ---------- */
 export function exportBackup(): string {
-  const { bookmarks, memory, highlights, settings, pages, myHeads, obsNotes } = state;
-  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages, myHeads, obsNotes }, null, 1);
+  const { bookmarks, memory, highlights, settings, pages } = state;
+  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages }, null, 1);
 }
 
 export function importBackup(json: string, mode: 'merge' | 'replace') {
@@ -336,7 +318,6 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
     if (mode === 'replace') {
       return {
         bookmarks: d.bookmarks || [], memory: d.memory || [], highlights: d.highlights || {},
-        myHeads: d.myHeads || {}, obsNotes: d.obsNotes || {},
         settings: withDefaults(d.settings),
         pages: d.pages ? DEFAULT_PAGES.map((p, i) => ({ ...p, ...(d.pages[i] || {}) })) : s.pages,
       };
@@ -349,8 +330,6 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
       memory: [...s.memory, ...madd],
       bookmarks: [...s.bookmarks, ...add].sort((a, b) => b.createdAt - a.createdAt),
       highlights: { ...(d.highlights || {}), ...s.highlights },
-      myHeads: { ...(d.myHeads || {}), ...s.myHeads },
-      obsNotes: { ...(d.obsNotes || {}), ...s.obsNotes },
     };
   });
 }
