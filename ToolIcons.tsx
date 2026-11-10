@@ -10,7 +10,7 @@ export function useAuto(): AutoState {
   return useSyncExternalStore(cb => { autoL.add(cb); return () => { autoL.delete(cb); }; }, () => auto);
 }
 
-/** 화면 오른쪽 위의 (자동 스크롤) · 북마크 · 검색 · 설정 버튼 */
+/** 화면 오른쪽 위의 (자동 스크롤) · 읽기표 · 북마크 · 검색 · 설정 버튼 */
 export default function ToolIcons() {
   const tab = useStore(s => s.tab);
   const a = useAuto();
@@ -25,6 +25,12 @@ export default function ToolIcons() {
           <span>자동</span>
         </button>
       )}
+      <ToolBtn tab="reading" cur={tab} label="읽기표">
+        <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="2" />
+        <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" fill="currentColor" stroke="currentColor" strokeWidth="2" />
+        <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" fill="currentColor" stroke="currentColor" strokeWidth="2" />
+        <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      </ToolBtn>
       <ToolBtn tab="bookmarks" cur={tab} label="북마크">
         <path d="M6 3h12v18l-6-5-6 5z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
       </ToolBtn>

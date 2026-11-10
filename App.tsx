@@ -6,6 +6,7 @@ import BookmarksView from './BookmarksView';
 import Reader from './Reader';
 import SearchView from './SearchView';
 import SettingsView from './SettingsView';
+import ReadingView from './ReadingView';
 import { navBack, openTab, Tab, useStore } from './store';
 import { initBackHandling, registerToast, setRootBack, useWakeLock } from './utils';
 
@@ -93,6 +94,7 @@ export default function App() {
         <BookmarksView data={data} active={tab === 'bookmarks'} />
         <SearchView data={data} active={tab === 'search'} />
         <SettingsView active={tab === 'settings'} />
+        <ReadingView data={data} active={tab === 'reading'} />
       </main>
 
       {/* 하단: 페이지마다 지금 읽는 곳(책 · 장 · 절)을 보여 줍니다 */}

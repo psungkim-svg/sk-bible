@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 export type Theme = 'light' | 'sepia' | 'dark';
-export type Tab = number | 'bookmarks' | 'search' | 'settings';
+export type Tab = number | 'bookmarks' | 'search' | 'settings' | 'reading';
 export const MAX_PAGES = 10;
 
 export interface Loc { book: number; chapter: number; verse: number; }
@@ -75,6 +75,7 @@ export interface AppState {
   recentSearches: string[];
   searchMode: SearchMode;
   bmMode: 'bm' | 'mem';   // 북마크 화면: 북마크 / 암송
+  readBooks: Record<number, number>; // v1.9.3 읽기표: 다 읽은 책 → 표시한 때
 }
 
 
@@ -133,7 +134,7 @@ const KEY = 'sk-bible-v1';
 function load(): AppState {
   const base: AppState = {
     tab: 0, lastPage: 0, pages: DEFAULT_PAGES, bookmarks: [], memory: [], highlights: {},
-    settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word', bmMode: 'bm',
+    settings: DEFAULT_SETTINGS, recentSearches: [], searchMode: 'word', bmMode: 'bm', readBooks: {},
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -259,6 +260,16 @@ export function updateBookmark(id: string, patch: Partial<Bookmark>) {
   setState(s => ({ bookmarks: s.bookmarks.map(b => (b.id === id ? { ...b, ...patch } : b)) }));
 }
 
+/* ---------- 📋 읽기표 (다 읽은 책 표시) ---------- */
+export function toggleReadBook(book: number) {
+  setState(s => {
+    const r = { ...s.readBooks };
+    if (r[book]) delete r[book]; else r[book] = Date.now();
+    return { readBooks: r };
+  });
+}
+export function clearReadBooks() { setState(() => ({ readBooks: {} })); }
+
 export function setBmMode(bmMode: 'bm' | 'mem') { setState(() => ({ bmMode })); }
 
 /* ---------- 암송 카드 ---------- */
@@ -309,8 +320,8 @@ export function addRecentSearch(q: string) {
 
 /* ---------- 백업 (폰 바꿀 때) ---------- */
 export function exportBackup(): string {
-  const { bookmarks, memory, highlights, settings, pages } = state;
-  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages }, null, 1);
+  const { bookmarks, memory, highlights, settings, pages, readBooks } = state;
+  return JSON.stringify({ app: 'sk-bible', version: 1, exportedAt: new Date().toISOString(), bookmarks, memory, highlights, settings, pages, readBooks }, null, 1);
 }
 
 export function importBackup(json: string, mode: 'merge' | 'replace') {
@@ -320,6 +331,7 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
     if (mode === 'replace') {
       return {
         bookmarks: d.bookmarks || [], memory: d.memory || [], highlights: d.highlights || {},
+        readBooks: d.readBooks || {},
         settings: withDefaults(d.settings),
         pages: d.pages ? DEFAULT_PAGES.map((p, i) => ({ ...p, ...(d.pages[i] || {}) })) : s.pages,
       };
@@ -332,6 +344,7 @@ export function importBackup(json: string, mode: 'merge' | 'replace') {
       memory: [...s.memory, ...madd],
       bookmarks: [...s.bookmarks, ...add].sort((a, b) => b.createdAt - a.createdAt),
       highlights: { ...(d.highlights || {}), ...s.highlights },
+      readBooks: { ...(d.readBooks || {}), ...s.readBooks },
     };
   });
 }

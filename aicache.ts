@@ -19,6 +19,8 @@ const LIMIT: Record<string, number> = {
   'sk-ai-verse-v5': 3000, 'sk-ai-vextra-v2': 3000, 'sk-ai-chap-v2': 1300, 'sk-topic-v3': 1300, 'sk-ai-bg-v2': 1300,
   // v1.9: 근거 있는 해설 (주석 원문 문장 + 번역)
   'sk-ai-verse-v6': 5000, 'sk-ai-chap-v3': 1300, 'sk-ai-bg-v4': 1500, 'sk-ai-para-v1': 1300, 'sk-ai-find-v2': 500,
+  // v1.9.4: 인물 소개 (Easton 성경사전 원문 + 쉬운 번역)
+  'sk-ai-who-v1': 3000,
 };
 /** v1.8.3: 길고 장황했던 예전 해설 — 앱이 켜질 때 지워서 공간 확보 (새로 열면 짧은 해설을 다시 받음) */
 const RETIRED = ['sk-ai-verse-v4', 'sk-ai-vextra-v1', 'sk-ai-chap-v1', 'sk-topic-v2', 'sk-ai-bg-v1',

@@ -5,6 +5,7 @@ import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
 import { askBookBg, askChapBg, BgAi, cacheGet, NS } from './study';
 import { PtList } from './Pt';
+import { GeoMapBox, PeopleBox } from './GeoView';
 
 /* ---------- ② 배경 카드 (v1.9.2: 1장 = 📜 책 전체 배경 / 2장부터 = 📍 그 장의 배경 · 틴데일 책 소개에서 골라 쉬운 말로 번역 · 원문은 눌러서) ---------- */
 type Part = { bg?: BgAi; state: 'idle' | 'loading' | 'error'; err: string };
@@ -24,7 +25,7 @@ function useBgPart(load: (sig: AbortSignal, force: boolean) => Promise<BgAi>, in
   return [p, () => setN(x => x + 1)] as const;
 }
 
-export function BackgroundCard({ data, book, chapter }: { data?: BibleData; book: number; chapter: number; onVerse?: (v: number) => void }) {
+export function BackgroundCard({ data, book, chapter, onVerse }: { data?: BibleData; book: number; chapter: number; onVerse?: (v: number) => void }) {
   const name = BOOKS[book].name;
   const total = data?.[book]?.length;
   const unit = book === 18 ? '편' : '장';
@@ -47,8 +48,10 @@ export function BackgroundCard({ data, book, chapter }: { data?: BibleData; book
       {p.state === 'loading' && !p.bg && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> 배경을 찾아 쉬운 말로 번역하는 중… (10~30초)</div>}
       {p.state === 'error' && !p.bg && <div className="ai-err">⚠️ {p.err} <button className="link-btn" onClick={retry}>다시 시도</button></div>}
       {p.bg && (p.bg.pts.length > 0 ? <PtList pts={p.bg.pts} /> : (needBook && !busy ? <p className="desc muted">이 책의 배경 자료를 찾지 못했습니다.</p> : null))}
+      <GeoMapBox book={book} chapter={chapter} bookWide={first} bookName={name} onVerse={onVerse} />
+      <PeopleBox book={book} chapter={chapter} />
       <div className="ai-foot">
-        <span className="muted small">틴데일 스터디 노트 책 소개 · 쉬운 말 번역 (CC BY-SA)</span>
+        <span className="muted small">배경: 틴데일 스터디 노트 책 소개 · 지도·인물: Theographic, Natural Earth</span>
         {busy ? <span className="muted">받는 중…</span> : <button onClick={retry}>↻ 다시</button>}
       </div>
     </div>

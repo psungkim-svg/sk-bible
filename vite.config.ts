@@ -13,6 +13,7 @@ const BUILD_TIME = new Date().toISOString();
 const ASSETS: Record<string, string> = {
   'data/nkrv.json': 'nkrv.json',
   'data/xref.json': 'xref.json',
+  'data/geo.json': 'geo.json',     // 지도·인물 (Theographic CC BY-SA, Natural Earth)
   'sw-extra.js': 'sw-extra.js',   // 서비스 워커 덧붙임 (업데이트 버튼)   // 관련 구절 (OpenBible.info, CC BY)
   'icons/icon-192.png': 'icon-192.png',
   'icons/icon-512.png': 'icon-512.png',

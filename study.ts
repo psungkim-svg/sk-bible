@@ -11,7 +11,7 @@ import { getHeads } from './headings';
 import { cacheGet, cacheSet } from './aicache';
 export { cacheGet, cacheSet };
 // v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
-export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1' };
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1', who: 'sk-ai-who-v1' };
 
 /** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
 export function deviceId() {
