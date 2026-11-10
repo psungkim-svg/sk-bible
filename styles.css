@@ -810,3 +810,7 @@ button.para-sum.fail { width: 100%; }
 .bg-range { margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: .78em; font-weight: 600; vertical-align: 1px; }
 .bg-keys-h { text-align: left; word-break: keep-all; }
 .bg-range { white-space: nowrap; display: inline-block; }
+
+/* ================= v1.9.2: 단락 요약 글자에 소제목과 같은 계열의 색 ================= */
+.para-sum, .para-sum .pt-ko { color: color-mix(in srgb, var(--accent) 62%, var(--text)); }
+.ai-foot button { white-space: nowrap; flex-shrink: 0; }

@@ -11,5 +11,12 @@
   },
   "ai": {
     "binding": "AI"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sk-bible-db",
+      "database_id": "471e21e7-0ce3-454c-bd30-ea67d2c34d18"
+    }
+  ]
 }

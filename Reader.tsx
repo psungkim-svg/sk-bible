@@ -470,7 +470,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
       {showTopic && onTopicClick && (
-        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>📜 배경 · {BOOKS[book].name} 전체와 {chapter}{book === 18 ? '편' : '장'}<span className="topic-more">보기 <Chev open={!!bgOpen} /></span></button>
+        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{chapter === 1 || data[book].length === 1 ? <>📜 {BOOKS[book].name} 전체의 배경</> : <>📍 {chapter}{book === 18 ? '편' : '장'}의 배경</>}<span className="topic-more">보기 <Chev open={!!bgOpen} /></span></button>
       )}
       {paraSum && paras?.status === 'loading' && <div className="para-sum pending">📝 단락 요약(틴데일 노트)을 번역하는 중… (10~30초)</div>}
       {paraSum && paras?.status === 'fail' && onRetryParas && (

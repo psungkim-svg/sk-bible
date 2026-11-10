@@ -6,7 +6,7 @@ import { BOOKS } from './books';
 import { askBookBg, askChapBg, BgAi, cacheGet, NS } from './study';
 import { PtList } from './Pt';
 
-/* ---------- ② 배경 카드 (v1.9.1: 📍 지금 읽는 장 + 📜 책 전체 — 둘 다 틴데일 책 소개에서 골라 쉬운 말로 번역, 영어 원문 없음) ---------- */
+/* ---------- ② 배경 카드 (v1.9.2: 1장 = 📜 책 전체 배경 / 2장부터 = 📍 그 장의 배경 · 틴데일 책 소개에서 골라 쉬운 말로 번역 · 원문은 눌러서) ---------- */
 type Part = { bg?: BgAi; state: 'idle' | 'loading' | 'error'; err: string };
 function useBgPart(load: (sig: AbortSignal, force: boolean) => Promise<BgAi>, initial: BgAi | undefined, deps: unknown[]) {
   const [p, setP] = useState<Part>({ bg: initial, state: 'idle', err: '' });
@@ -28,32 +28,28 @@ export function BackgroundCard({ data, book, chapter }: { data?: BibleData; book
   const name = BOOKS[book].name;
   const total = data?.[book]?.length;
   const unit = book === 18 ? '편' : '장';
-  const [cp, reCp] = useBgPart((sig, f) => askChapBg(book, chapter, sig, f), cacheGet<BgAi>(NS.bg, `${book}:${chapter}`), [book, chapter]);
-  const [bp, reBp] = useBgPart((sig, f) => askBookBg(book, sig, f), cacheGet<BgAi>(NS.bg, `${book}`), [book]);
-  const busy = cp.state === 'loading' || bp.state === 'loading';
-  const part = (p: Part, retry: () => void, what: string) => (
-    <>
-      {p.state === 'loading' && !p.bg && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> {what} 찾아 번역하는 중… (10~30초)</div>}
-      {p.state === 'error' && !p.bg && <div className="ai-err">⚠️ {p.err} <button className="link-btn" onClick={retry}>다시 시도</button></div>}
-      {p.bg && (p.bg.pts.length > 0 ? <PtList pts={p.bg.pts} noOrig /> : <p className="desc muted">책 소개에 이 부분에 대한 글이 없습니다.</p>)}
-    </>
-  );
-  const chapShown = !(cp.bg?.none && !cp.bg.pts.length);
+  const first = chapter === 1 || total === 1;
+  // 2장부터: 그 장의 배경 / 책 소개에 그 장 글이 없으면 그때만 책 전체 배경
+  const [cp, reCp] = useBgPart((sig, f) => (first ? Promise.resolve({ pts: [], none: true } as BgAi) : askChapBg(book, chapter, sig, f)),
+    first ? { pts: [], none: true } : cacheGet<BgAi>(NS.bg, `${book}:${chapter}`), [book, chapter]);
+  const needBook = first || !!(cp.bg?.none && !cp.bg.pts.length);
+  const [bp, reBp] = useBgPart((sig, f) => (needBook ? askBookBg(book, sig, f) : Promise.resolve({ pts: [] } as BgAi)),
+    needBook ? cacheGet<BgAi>(NS.bg, `${book}`) : { pts: [] }, [book, needBook]);
+  const p = needBook ? bp : cp;
+  const retry = needBook ? reBp : reCp;
+  const busy = p.state === 'loading';
   return (
     <div className="bg-card">
-      {chapShown && (
-        <div className="bg-part">
-          <div className="bg-keys-h">📍 {chapter}{unit}이 속한 부분{cp.bg?.range && cp.bg.range !== `${chapter}장` ? <span className="bg-range">{cp.bg.range}</span> : null}</div>
-          {part(cp, reCp, `${chapter}${unit} 부분을`)}
-        </div>
-      )}
-      <div className="bg-part">
-        <div className="bg-keys-h">📜 {name} 전체의 배경{total ? <span className="bg-range">1–{total}{unit} 공통</span> : null}</div>
-        {part(bp, reBp, `${name}의 배경을`)}
+      <div className="bg-keys-h">
+        {needBook ? <>📜 {name} 전체의 배경{total ? <span className="bg-range">1–{total}{unit}</span> : null}</> : <>📍 {chapter}{unit}의 배경{cp.bg?.range && cp.bg.range !== `${chapter}장` ? <span className="bg-range">{cp.bg.range} 이야기</span> : null}</>}
       </div>
+      {!first && needBook && <p className="desc muted small">책 소개에 {chapter}{unit}만 다룬 글이 없어 책 전체 배경을 보여 드립니다.</p>}
+      {p.state === 'loading' && !p.bg && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> 배경을 찾아 쉬운 말로 번역하는 중… (10~30초)</div>}
+      {p.state === 'error' && !p.bg && <div className="ai-err">⚠️ {p.err} <button className="link-btn" onClick={retry}>다시 시도</button></div>}
+      {p.bg && (p.bg.pts.length > 0 ? <PtList pts={p.bg.pts} /> : (needBook && !busy ? <p className="desc muted">이 책의 배경 자료를 찾지 못했습니다.</p> : null))}
       <div className="ai-foot">
-        <span className="muted small">틴데일 스터디 노트 책 소개에서 골라 쉬운 말로 번역 (CC BY-SA 4.0)</span>
-        {busy ? <span className="muted">받는 중…</span> : <button onClick={() => { reCp(); reBp(); }}>↻ 다시</button>}
+        <span className="muted small">틴데일 스터디 노트 책 소개 · 쉬운 말 번역 (CC BY-SA)</span>
+        {busy ? <span className="muted">받는 중…</span> : <button onClick={retry}>↻ 다시</button>}
       </div>
     </div>
   );
