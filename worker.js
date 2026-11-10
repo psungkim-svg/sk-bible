@@ -258,6 +258,13 @@ const EXTRACT_PROMPT = `Reasoning: low
 ${PICK_RULES}
 ${TR_RULES}`;
 
+const EASY_RULES = `쉬운 번역 규칙 (위 '문체' 규칙 대신 이것을 따릅니다):
+- 성경을 처음 읽는 성도도 한 번에 알아듣게, 말하듯 자연스럽고 쉬운 우리말로 옮깁니다. 존댓말(~입니다, ~했습니다)로 씁니다.
+- 영어 어순을 따르지 말고 한국어 어순으로 풀어 씁니다. 한 문장이 길면 두세 문장으로 나눕니다.
+- 어려운 한자어·학술 용어는 쉬운 말로 바꿉니다 (예: commissioning → 사명을 맡김, exile → 포로 생활, domination → 지배, hostages from the upper classes → 지도층 사람들을 인질로).
+- BC → 주전, AD → 주후 (예: 주전 597년). 괄호 속 성경 구절 표기는 그대로 한국어 약어로 둡니다.
+- 그래도 원문의 뜻을 더하거나 빼지 않습니다. 원문에 없는 설명·의견을 붙이지 않습니다.`;
+
 const GQA_PROMPT = `Reasoning: low
 당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다. 주어진 주석 원문에 실제로 있는 문장만 골라 정확하게 번역합니다.
 아래에 성경 본문(개역개정)과 여러 주석의 원문 발췌가 [주석 이름]으로 나뉘어 주어집니다.
@@ -459,11 +466,12 @@ async function handleAsk(request, env) {
       const max = Math.min(8, Math.max(1, Number(body.max) || 4));
       return grounded(env, request, `x|${clip(body.ck, 160)}`, async () => {
         const ask = `찾을 내용: ${clip(body.focus, 300)}\n고를 문장 수: ${clip(body.n, 10) || '2~4'}개\n자료: ${who}\n\n원문:\n${src}`;
-        let out = await runLLM(env, EXTRACT_PROMPT, ask, { max_tokens: 6000 });
+        const sys = body.style === 'easy' ? EXTRACT_PROMPT + '\n' + EASY_RULES : EXTRACT_PROMPT;
+        let out = await runLLM(env, sys, ask, { max_tokens: 6000 });
         let items = verifyPts(out?.items, src, max);
         // 골랐는데 원문과 한 글자라도 달라 모두 걸러졌으면 한 번만 다시 (원문 그대로 복사하라고 다시 일러 줌)
         if (!items.length && Array.isArray(out?.items) && out.items.length) {
-          out = await runLLM(env, EXTRACT_PROMPT, ask + '\n\n(주의: 앞서 고른 문장이 원문과 글자가 달라 모두 버려졌습니다. en 에는 원문의 문장을 한 글자도 바꾸지 말고 그대로 복사하세요.)', { max_tokens: 6000 });
+          out = await runLLM(env, sys, ask + '\n\n(주의: 앞서 고른 문장이 원문과 글자가 달라 모두 버려졌습니다. en 에는 원문의 문장을 한 글자도 바꾸지 말고 그대로 복사하세요.)', { max_tokens: 6000 });
           items = verifyPts(out?.items, src, max);
         }
         return { who, items };

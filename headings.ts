@@ -28,7 +28,7 @@ export interface ParaSum { v: number; sum: string }
 export interface TopicState { status: TopicStatus; topic?: string; paras?: ParaSum[]; error?: string; parasPending?: boolean; parasError?: string }
 interface Entry { topic: string; paras?: ParaSum[] }
 
-const NS2 = 'sk-topic-v2';
+const NS2 = 'sk-topic-v3'; // v1.8.3: 단락 요약을 절반 길이로
 const KEY = 'sk-topic-v1';
 let v1: Record<string, string> = {};
 try { v1 = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { v1 = {}; }

@@ -470,7 +470,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
       {showTopic && onTopicClick && (
-        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>📜 {BOOKS[book].name}의 배경<span className="topic-more">배경 보기 <Chev open={!!bgOpen} /></span></button>
+        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>📜 배경 · {BOOKS[book].name} 전체와 {chapter}{book === 18 ? '편' : '장'}<span className="topic-more">보기 <Chev open={!!bgOpen} /></span></button>
       )}
       {paraSum && paras?.status === 'loading' && <div className="para-sum pending">📝 단락 요약(틴데일 노트)을 번역하는 중… (10~30초)</div>}
       {paraSum && paras?.status === 'fail' && onRetryParas && (
@@ -488,7 +488,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
             {head?.map((hd, j) => (
               <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
             ))}
-            {sumAt.get(v) && <div className="para-sum"><ul className="pt-list"><PtLine en={sumAt.get(v)!.en} ko={sumAt.get(v)!.ko} /></ul></div>}
+            {sumAt.get(v) && <div className="para-sum"><ul className="pt-list"><PtLine tag="요약" en={sumAt.get(v)!.en} ko={sumAt.get(v)!.ko} /></ul></div>}
             <p
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}

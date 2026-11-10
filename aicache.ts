@@ -18,12 +18,12 @@ const LIMIT: Record<string, number> = {
   // v1.8.3: 해설을 절반 길이로 간추린 새 저장소
   'sk-ai-verse-v5': 3000, 'sk-ai-vextra-v2': 3000, 'sk-ai-chap-v2': 1300, 'sk-topic-v3': 1300, 'sk-ai-bg-v2': 1300,
   // v1.9: 근거 있는 해설 (주석 원문 문장 + 번역)
-  'sk-ai-verse-v6': 5000, 'sk-ai-chap-v3': 1300, 'sk-ai-bg-v3': 100, 'sk-ai-para-v1': 1300, 'sk-ai-find-v2': 500,
+  'sk-ai-verse-v6': 5000, 'sk-ai-chap-v3': 1300, 'sk-ai-bg-v4': 1500, 'sk-ai-para-v1': 1300, 'sk-ai-find-v2': 500,
 };
 /** v1.8.3: 길고 장황했던 예전 해설 — 앱이 켜질 때 지워서 공간 확보 (새로 열면 짧은 해설을 다시 받음) */
 const RETIRED = ['sk-ai-verse-v4', 'sk-ai-vextra-v1', 'sk-ai-chap-v1', 'sk-topic-v2', 'sk-ai-bg-v1',
   // v1.9: AI가 지어 쓰던 해설·장 주제·단락 요약은 지우고, 주석 원문 번역으로 새로 받음
-  'sk-ai-verse-v5', 'sk-ai-vextra-v2', 'sk-ai-chap-v2', 'sk-topic-v3', 'sk-ai-bg-v2', 'sk-ai-find-v1'];
+  'sk-ai-verse-v5', 'sk-ai-vextra-v2', 'sk-ai-chap-v2', 'sk-topic-v3', 'sk-ai-bg-v2', 'sk-ai-find-v1', 'sk-ai-bg-v3'];
 
 interface Row { k: string; v: unknown; t: number }
 const mem = new Map<string, Map<string, Row>>();

@@ -8,9 +8,10 @@ import { BOOKS } from './books';
 import { getHeads } from './headings';
 
 /* ---------- 폰에 저장하는 AI 결과 → aicache.ts (v1.8: IndexedDB) ---------- */
-export { cacheGet, cacheSet } from './aicache';
+import { cacheGet, cacheSet } from './aicache';
+export { cacheGet, cacheSet };
 // v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
-export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v3', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1' };
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1' };
 
 /** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
 export function deviceId() {
@@ -357,7 +358,7 @@ export function askTerm(term: string, where: string, signal?: AbortSignal) {
 }
 
 /* ---------- ② 배경 보기: 틴데일 스터디 노트의 "책 소개"에서 고른 문장 + 번역 (책마다 한 번) ---------- */
-export interface BgAi { pts: Pt[]; none?: boolean }
+export interface BgAi { pts: Pt[]; none?: boolean; range?: string }
 const introCache = new Map<number, Promise<string>>();
 function bookIntro(book: number): Promise<string> {
   let p = introCache.get(book);
@@ -371,15 +372,93 @@ function bookIntro(book: number): Promise<string> {
   }
   return p;
 }
-export async function askBackground(book: number, signal?: AbortSignal): Promise<BgAi> {
+/** 틴데일 책 소개를 제목(Setting, Summary …)별로 나눔 */
+function introSections(t: string) {
+  const ps = t.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  const out: { h: string; ps: string[] }[] = [];
+  let cur = { h: '', ps: [] as string[] };
+  for (const x of ps) {
+    if (x.length < 50 && !/[.:;,]$/.test(x) && !x.startsWith('•')) { out.push(cur); cur = { h: x, ps: [] }; }
+    else cur.ps.push(x);
+  }
+  out.push(cur);
+  return out;
+}
+/** 단락 안에서 다루는 장 범위들 (Chapters 1–3, chs 5–8, ch 6, (2:1–3:15), Exodus 1–15 …) */
+function chapRanges(x: string, eng: string) {
+  const r: [number, number][] = [];
+  const add = (a: string, b?: string) => r.push([+a, +(b || a)]);
+  for (const m of x.matchAll(/\b(?:[Cc]hapters?|chs?|[Pp]salms?)\.? (\d+)(?:\s*[–-]\s*(\d+))?/g)) add(m[1], m[2]);
+  if (eng) for (const m of x.matchAll(new RegExp(`\\b${eng} (\\d+)\\s*[–-]\\s*(\\d+)\\b(?!:)`, 'g'))) add(m[1], m[2]);
+  for (const m of x.matchAll(/\((\d+):\d+(?:[–-](\d+)(?::(\d+))?)?/g)) r.push([+m[1], m[3] ? +m[2] : +m[1]]);
+  return r;
+}
+const ENG: Record<string, string> = { GEN: 'Genesis', EXO: 'Exodus', LEV: 'Leviticus', NUM: 'Numbers', DEU: 'Deuteronomy', ISA: 'Isaiah', JER: 'Jeremiah', EZK: 'Ezekiel', DAN: 'Daniel', JOB: 'Job', PRO: 'Proverbs' };
+/** 이 장을 다루는 책 소개 'Summary' 단락 (가장 좁은 범위) */
+function chapterPara(t: string, book: number, c: number): { text: string; range: string; key: string } | null {
+  const sum = introSections(t).find(x => /^summary/i.test(x.h));
+  if (!sum) return null;
+  // 이 장을 가장 좁게 짚는 단락을 고르고, 표시는 그 단락이 다루는 가장 넓은 범위로 (예: 에스겔 1–3장)
+  let bi = -1, span = 1e9;
+  const eng = ENG[USFM[book]] || '';
+  sum.ps.forEach((x, i) => {
+    for (const [a, b] of chapRanges(x, eng)) if (a <= c && c <= b && b - a < span) { span = b - a; bi = i; }
+  });
+  if (bi >= 0) {
+    let lo = c, hi = c;
+    for (const [a, b] of chapRanges(sum.ps[bi], eng)) if (a <= c && c <= b && b - a >= hi - lo) { lo = a; hi = b; }
+    return { text: sum.ps[bi], range: lo === hi ? `${lo}장` : `${lo}–${hi}장`, key: `q${bi}` };
+  }
+  // 장 표시가 없는 짧은 책(룻기 등): 요약 전체에서 이 장 이야기를 고름
+  const all = sum.ps.join('\n\n');
+  return all.length > 80 ? { text: all.slice(0, 4000), range: '', key: `c${c}` } : null;
+}
+
+/** 📜 책 전체의 배경 — 틴데일 책 소개의 'Setting'에서 큰 그림만 골라 쉬운 말로 번역 */
+export async function askBookBg(book: number, signal?: AbortSignal, force = false): Promise<BgAi> {
+  const key = `${book}`;
+  const hit = !force && cacheGet<BgAi>(NS.bg, key);
+  if (hit) return hit;
   if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
   const intro = await bookIntro(book);
   if (!intro) return { pts: [], none: true };
+  const secs = introSections(intro);
+  const set = secs.find(x => /^(setting|historical setting|background)/i.test(x.h));
+  const src = [secs[0]?.ps[0] || '', ...(set?.ps || [])].join('\n\n') || intro;
   const r = await ask<{ items: Pt[] }>({
-    step: 'extract', q: `${BOOKS[book].name} 배경`, who: '틴데일 스터디 노트 (책 소개)', source: intro.slice(0, 7000),
-    focus: `${BOOKS[book].name}의 배경 — 기록된 시대와 상황, 장소, 저자와 받는 사람, 기록 목적, 핵심 주제`, n: '5~7', max: 7, ck: `b|${book}`,
+    step: 'extract', style: 'easy', q: `${BOOKS[book].name} 배경`, who: '틴데일 스터디 노트 (책 소개)', source: src.slice(0, 5000),
+    focus: `${BOOKS[book].name}을(를) 처음 읽는 성도가 꼭 알아야 할 큰 그림 — 언제, 어디서, 누가, 누구에게, 어떤 상황에서 쓰였는가. 연도·왕·전투 이름이 줄줄이 나오는 문장보다 상황을 한눈에 알려 주는 문장`,
+    n: '3~4', max: 4, ck: `b2|${book}`,
   }, signal);
-  return { pts: r.items || [] };
+  const out: BgAi = { pts: r.items || [] };
+  if (out.pts.length) cacheSet(NS.bg, key, out);
+  return out;
+}
+
+/** 📍 지금 읽는 장 — 책 소개 'Summary'에서 이 장을 다루는 단락만 골라 쉬운 말로 번역 */
+export async function askChapBg(book: number, chapter: number, signal?: AbortSignal, force = false): Promise<BgAi> {
+  const ckey = `${book}:${chapter}`;
+  const hit = !force && cacheGet<BgAi>(NS.bg, ckey);
+  if (hit) return hit;
+  if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
+  const intro = await bookIntro(book);
+  const para = intro ? chapterPara(intro, book, chapter) : null;
+  if (!para) { const none: BgAi = { pts: [], none: true }; if (intro) cacheSet(NS.bg, ckey, none); return none; }
+  const pkey = `${book}|${para.key}`;
+  const shared = !force && cacheGet<BgAi>(NS.bg, pkey);
+  if (shared) { cacheSet(NS.bg, ckey, shared); return shared; }
+  const heads = getHeads(book, chapter).map(h => h.title).join(', ');
+  const r = await ask<{ items: Pt[] }>({
+    step: 'extract', style: 'easy', q: `${BOOKS[book].name} ${chapter}장 위치`, who: '틴데일 스터디 노트 (책 소개)', source: para.text,
+    focus: para.range
+      ? `${BOOKS[book].name} ${para.range}이 무슨 내용이고 책 전체에서 어떤 부분인지 (특히 ${chapter}장${heads ? ': ' + heads : ''})`
+      : `${BOOKS[book].name} ${chapter}장의 내용${heads ? ' (' + heads + ')' : ''}`,
+    n: '2~3', max: 3, ck: `bc|${book}|${para.key}`,
+  }, signal);
+  const out: BgAi = { pts: r.items || [], range: para.range };
+  if (!out.pts.length) out.none = true;
+  cacheSet(NS.bg, pkey, out); cacheSet(NS.bg, ckey, out);
+  return out;
 }
 
 /* ---------- ③ 관련 구절 (관주) ---------- */

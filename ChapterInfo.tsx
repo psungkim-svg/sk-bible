@@ -3,41 +3,58 @@ import { Chev } from './ToolIcons';
 import { BibleData } from './bible';
 import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
-import { askBackground, BgAi, cacheGet, cacheSet, NS } from './study';
+import { askBookBg, askChapBg, BgAi, cacheGet, NS } from './study';
 import { PtList } from './Pt';
 
-/* ---------- ② 배경 보기 (v1.9: 틴데일 스터디 노트의 책 소개에서 고른 문장 + 번역 · 책마다 한 번) ---------- */
-export function BackgroundCard({ book }: { data?: BibleData; book: number; chapter?: number; onVerse?: (v: number) => void }) {
-  const key = `${book}`;
-  const [bg, setBg] = useState<BgAi | undefined>(() => cacheGet<BgAi>(NS.bg, key));
-  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [err, setErr] = useState('');
+/* ---------- ② 배경 카드 (v1.9.1: 📍 지금 읽는 장 + 📜 책 전체 — 둘 다 틴데일 책 소개에서 골라 쉬운 말로 번역, 영어 원문 없음) ---------- */
+type Part = { bg?: BgAi; state: 'idle' | 'loading' | 'error'; err: string };
+function useBgPart(load: (sig: AbortSignal, force: boolean) => Promise<BgAi>, initial: BgAi | undefined, deps: unknown[]) {
+  const [p, setP] = useState<Part>({ bg: initial, state: 'idle', err: '' });
   const [n, setN] = useState(0);
   useEffect(() => {
-    if (bg && n === 0) return;
+    if (initial && n === 0) { setP({ bg: initial, state: 'idle', err: '' }); return; }
     const ctl = new AbortController();
-    setState('loading');
-    askBackground(book, ctl.signal)
-      .then(r => { setBg(r); if (r.pts.length || r.none) cacheSet(NS.bg, key, r); setState('idle'); })
-      .catch(e => { if (!ctl.signal.aborted) { setErr((e as Error).message); setState('error'); } });
+    setP(x => ({ ...x, state: 'loading' }));
+    load(ctl.signal, n > 0)
+      .then(r => setP({ bg: r, state: 'idle', err: '' }))
+      .catch(e => { if (!ctl.signal.aborted) setP(x => ({ ...x, state: 'error', err: (e as Error).message })); });
     return () => ctl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n, book]);
+  }, [n, ...deps]);
+  return [p, () => setN(x => x + 1)] as const;
+}
 
+export function BackgroundCard({ data, book, chapter }: { data?: BibleData; book: number; chapter: number; onVerse?: (v: number) => void }) {
+  const name = BOOKS[book].name;
+  const total = data?.[book]?.length;
+  const unit = book === 18 ? '편' : '장';
+  const [cp, reCp] = useBgPart((sig, f) => askChapBg(book, chapter, sig, f), cacheGet<BgAi>(NS.bg, `${book}:${chapter}`), [book, chapter]);
+  const [bp, reBp] = useBgPart((sig, f) => askBookBg(book, sig, f), cacheGet<BgAi>(NS.bg, `${book}`), [book]);
+  const busy = cp.state === 'loading' || bp.state === 'loading';
+  const part = (p: Part, retry: () => void, what: string) => (
+    <>
+      {p.state === 'loading' && !p.bg && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> {what} 찾아 번역하는 중… (10~30초)</div>}
+      {p.state === 'error' && !p.bg && <div className="ai-err">⚠️ {p.err} <button className="link-btn" onClick={retry}>다시 시도</button></div>}
+      {p.bg && (p.bg.pts.length > 0 ? <PtList pts={p.bg.pts} noOrig /> : <p className="desc muted">책 소개에 이 부분에 대한 글이 없습니다.</p>)}
+    </>
+  );
+  const chapShown = !(cp.bg?.none && !cp.bg.pts.length);
   return (
     <div className="bg-card">
-      {state === 'loading' && !bg && <div className="busy" style={{ padding: '6px 0' }}><div className="spinner small" /> {BOOKS[book].name}의 배경을 찾아 번역하는 중… (10~30초)</div>}
-      {state === 'error' && !bg && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></div>}
-      {bg && (
-        <>
-          <div className="bg-keys-h">📜 {BOOKS[book].name}의 배경</div>
-          {bg.pts.length > 0 ? <PtList pts={bg.pts} /> : <p className="desc">이 책의 배경 자료를 찾지 못했습니다.</p>}
-          <div className="ai-foot">
-            <span className="muted small">틴데일 스터디 노트 (CC BY-SA 4.0) · 원문 번역</span>
-            {state === 'loading' ? <span className="muted">다시 받는 중…</span> : <button onClick={() => setN(x => x + 1)}>↻ 다시</button>}
-          </div>
-        </>
+      {chapShown && (
+        <div className="bg-part">
+          <div className="bg-keys-h">📍 {chapter}{unit}이 속한 부분{cp.bg?.range && cp.bg.range !== `${chapter}장` ? <span className="bg-range">{cp.bg.range}</span> : null}</div>
+          {part(cp, reCp, `${chapter}${unit} 부분을`)}
+        </div>
       )}
+      <div className="bg-part">
+        <div className="bg-keys-h">📜 {name} 전체의 배경{total ? <span className="bg-range">1–{total}{unit} 공통</span> : null}</div>
+        {part(bp, reBp, `${name}의 배경을`)}
+      </div>
+      <div className="ai-foot">
+        <span className="muted small">틴데일 스터디 노트 책 소개에서 골라 쉬운 말로 번역 (CC BY-SA 4.0)</span>
+        {busy ? <span className="muted">받는 중…</span> : <button onClick={() => { reCp(); reBp(); }}>↻ 다시</button>}
+      </div>
     </div>
   );
 }

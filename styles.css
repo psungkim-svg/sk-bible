@@ -789,3 +789,24 @@ button.para-sum.fail { width: 100%; }
 .para-sum .pt-list .pt { padding-left: 0; }
 .para-sum .pt-list .pt::before { content: none; }
 .bg-card .pt-list { margin-top: 6px; }
+
+/* ================= v1.9.1: 단락 요약을 읽기 쉽게 · 배경 카드 두 부분 ================= */
+:root { --sum-bg: color-mix(in srgb, var(--accent) 6%, var(--card)); }
+.para-sum {
+  margin: 4px 0 calc(var(--fs) * .6); padding: 9px 11px 10px;
+  background: var(--sum-bg); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent); border-left: 4px solid var(--accent);
+  border-radius: 10px; font-family: var(--sans);
+  font-size: calc(var(--desc) * .95); line-height: 1.6;
+}
+.para-sum.pending { color: var(--muted); font-size: calc(var(--desc) * .85); }
+.para-sum .pt-ko { color: var(--text); }
+.ps-tag {
+  display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 6px;
+  background: var(--accent); color: #fff; font-size: .74em; font-weight: 700; line-height: 1.6; vertical-align: 2px;
+}
+[data-theme="dark"] .ps-tag { color: #1c1f25; }
+.bg-part + .bg-part { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.bg-range { margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: .78em; font-weight: 600; vertical-align: 1px; }
+.bg-keys-h { text-align: left; word-break: keep-all; }
+.bg-range { white-space: nowrap; display: inline-block; }
