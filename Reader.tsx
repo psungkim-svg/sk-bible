@@ -12,7 +12,7 @@ import ToolIcons, { Chev, setAuto, useAuto } from './ToolIcons';
 import StudyView from './StudyView';
 import { BackgroundCard, BookIntro } from './ChapterInfo';
 import { getHeads, Head } from './headings';
-import { ensureParas, ParaPt, ParaState, useParas } from './paras';
+import { ensureParas, ParaPt, ParaState, pingRead, useParas } from './paras';
 import { PtLine } from './Pt';
 
 interface Props { index: number; data: BibleData; active: boolean; }
@@ -55,6 +55,12 @@ export default function Reader({ index, data, active }: Props) {
   useEffect(() => {
     if (active && settings.paraSum) ensureParas(book, chapter);
   }, [active, settings.paraSum, book, chapter]);
+  // 🌙 5초 넘게 펴 둔 장만 "읽음"으로 알림 (넘겨 보기만 한 장은 빼고)
+  useEffect(() => {
+    if (!active) return;
+    const t = setTimeout(() => pingRead(book, chapter), 5000);
+    return () => clearTimeout(t);
+  }, [active, book, chapter]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 

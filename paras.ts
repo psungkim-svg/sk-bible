@@ -71,6 +71,16 @@ export async function ensureParas(book: number, chapter: number, force = false) 
   emit(k);
 }
 
+/** 🌙 이 장을 읽었다고 서버에 알림 (장 번호만 · 사람 정보 없음)
+    → 저녁에 서버가 "다음 장"의 해설을 미리 만들어 둠. 같은 장은 앱을 켤 때마다 한 번만. */
+const pinged = new Set<string>();
+export function pingRead(book: number, chapter: number) {
+  const ck = `${book}.${chapter}`;
+  if (pinged.has(ck) || !navigator.onLine) return;
+  pinged.add(ck);
+  fetch('/api/read', { method: 'POST', headers: { 'content-type': 'application/json', 'x-sk-app': '1' }, body: JSON.stringify({ ck }), keepalive: true }).catch(() => {});
+}
+
 export function useParas(book: number, chapter: number): ParaState {
   const k = `${book}:${chapter}`;
   return useSyncExternalStore(

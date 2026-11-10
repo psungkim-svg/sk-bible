@@ -347,8 +347,15 @@ async function dbOn(env) {
   if (!env.DB) return false;
   if (dbReady) return true;
   try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS ai (k TEXT PRIMARY KEY, v TEXT NOT NULL, t INTEGER)').run();
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS usage (d TEXT NOT NULL, dev TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (d, dev))').run();
+    await env.DB.batch([
+      'CREATE TABLE IF NOT EXISTS ai (k TEXT PRIMARY KEY, v TEXT NOT NULL, t INTEGER)',
+      'CREATE TABLE IF NOT EXISTS usage (d TEXT NOT NULL, dev TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (d, dev))',
+      // v1.9.5 저녁 미리 만들기: 하루 AI 사용량(어림) · 읽은 장 · 미리 만든 표시 · 상태
+      'CREATE TABLE IF NOT EXISTS spend (d TEXT PRIMARY KEY, n REAL NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS reads (k TEXT PRIMARY KEY, t INTEGER)',
+      'CREATE TABLE IF NOT EXISTS pre (k TEXT PRIMARY KEY, t INTEGER)',
+      'CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)',
+    ].map(q => env.DB.prepare(q)));
     dbReady = true;
   } catch { return false; }
   return true;
@@ -432,6 +439,7 @@ async function runLLM(env, system, user, opt = {}) {
   let lastErr = new Error('AI를 사용할 수 없습니다');
   for (const model of MODELS) {
     try {
+      if (CRON) CRON.sub++;
       const r = await env.AI.run(model, {
         messages: [
           { role: 'system', content: system },
@@ -440,7 +448,9 @@ async function runLLM(env, system, user, opt = {}) {
         max_tokens: opt.max_tokens || 6000,
         temperature: 0.2,
       });
-      const out = parseJson(extractText(r));
+      const txt = extractText(r);
+      await addSpend(env, neuronsOf(model, r, system.length + user.length, txt.length));
+      const out = parseJson(txt);
       if (out) return out;
       lastErr = new Error('AI 답을 읽지 못했습니다');
     } catch (e) {
@@ -448,6 +458,72 @@ async function runLLM(env, system, user, opt = {}) {
     }
   }
   throw lastErr;
+}
+
+
+/* ---- 근거 있는 해설의 세 가지 일 (폰의 요청에서도, 저녁 미리 만들기에서도 씀) ---- */
+async function doExtract(env, body) {
+  const who = clip(body.who, 40).trim();
+  const src = clip(body.source, 7000);
+  const max = Math.min(8, Math.max(1, Number(body.max) || 4));
+  const ask = `찾을 내용: ${clip(body.focus, 300)}\n고를 문장 수: ${clip(body.n, 10) || '2~4'}개\n자료: ${who}\n\n원문:\n${src}`;
+  const sys = body.style === 'easy' ? EXTRACT_PROMPT + '\n' + EASY_RULES : EXTRACT_PROMPT;
+  let out = await runLLM(env, sys, ask, { max_tokens: 6000 });
+  let items = verifyPts(out?.items, src, max);
+  // 골랐는데 원문과 한 글자라도 달라 모두 걸러졌으면 한 번만 다시 (원문 그대로 복사하라고 다시 일러 줌)
+  if (!items.length && Array.isArray(out?.items) && out.items.length) {
+    out = await runLLM(env, sys, ask + '\n\n(주의: 앞서 고른 문장이 원문과 글자가 달라 모두 버려졌습니다. en 에는 원문의 문장을 한 글자도 바꾸지 말고 그대로 복사하세요.)', { max_tokens: 6000 });
+    items = verifyPts(out?.items, src, max);
+  }
+  return { who, items };
+}
+async function doGqa(env, body) {
+  const q = clip(body.q, 400).trim();
+  const srcs = srcList(body.sources);
+  const out = await runLLM(env, GQA_PROMPT,
+    `본문: ${q}\n${clip(body.text, 4000)}\n질문 수: ${clip(body.n, 10) || '2~3'}개\n\n주석 원문 발췌:\n${srcBlock(srcs)}`,
+    { max_tokens: 9000 });
+  const qa = (Array.isArray(out?.qa) ? out.qa : []).slice(0, 8).map(x => {
+    const pts = [];
+    let who = '';
+    for (const p of (Array.isArray(x?.quotes) ? x.quotes : []).slice(0, 4)) {
+      const w = whoHas(p?.en, clip(x?.who, 40).trim(), srcs);
+      const ko = clip(p?.ko, 2000).trim();
+      if (!w || !ko || !/[가-힣]/.test(ko) || (who && w !== who)) continue;
+      who = w;
+      pts.push({ en: clip(p.en, 1500).trim(), ko });
+    }
+    return { q: clip(x?.q, 200).trim(), who, pts };
+  }).filter(x => x.q && x.pts.length);
+  const debates = (Array.isArray(out?.debates) ? out.debates : []).slice(0, 3).map(d => {
+    const views = [];
+    for (const v of (Array.isArray(d?.views) ? d.views : []).slice(0, 4)) {
+      const w = whoHas(v?.en, clip(v?.who, 40).trim(), srcs);
+      const ko = clip(v?.ko, 2000).trim();
+      if (!w || !ko || !/[가-힣]/.test(ko) || views.some(x => x.who === w)) continue;
+      views.push({ who: w, en: clip(v.en, 1500).trim(), ko });
+    }
+    return { issue: clip(d?.issue, 200).trim(), views };
+  }).filter(d => d.issue && d.views.length >= 2);
+  return { qa, debates };
+}
+function parasNotes(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 14)
+  .map(n => ({ v: Number(n?.v) || 0, text: clip(n?.text, 1500).trim() })).filter(n => n.v > 0 && n.text);
+}
+async function doParas(env, body) {
+  const q = clip(body.q, 400).trim();
+  const notes = parasNotes(body.notes);
+  const out = await runLLM(env, PARAS_PROMPT, `${q}\n\n${notes.map(n => `[v=${n.v}]\n${n.text}`).join('\n\n')}`, { max_tokens: 7000 });
+  const paras = [];
+  for (const p of (Array.isArray(out?.paras) ? out.paras : []).slice(0, 16)) {
+    const v = Number(p?.v) || 0;
+    const note = notes.find(n => n.v === v);
+    if (!note || paras.some(x => x.v === v)) continue;
+    const [pt] = verifyPts([p], note.text, 1);
+    if (pt) paras.push({ v, ...pt });
+  }
+  return { paras };
 }
 
 async function handleAsk(request, env) {
@@ -461,53 +537,11 @@ async function handleAsk(request, env) {
   try {
     /* ---- v1.9 근거 있는 해설 ---- */
     if (body.step === 'extract') {
-      const who = clip(body.who, 40).trim();
-      const src = clip(body.source, 7000);
-      const max = Math.min(8, Math.max(1, Number(body.max) || 4));
-      return grounded(env, request, `x|${clip(body.ck, 160)}`, async () => {
-        const ask = `찾을 내용: ${clip(body.focus, 300)}\n고를 문장 수: ${clip(body.n, 10) || '2~4'}개\n자료: ${who}\n\n원문:\n${src}`;
-        const sys = body.style === 'easy' ? EXTRACT_PROMPT + '\n' + EASY_RULES : EXTRACT_PROMPT;
-        let out = await runLLM(env, sys, ask, { max_tokens: 6000 });
-        let items = verifyPts(out?.items, src, max);
-        // 골랐는데 원문과 한 글자라도 달라 모두 걸러졌으면 한 번만 다시 (원문 그대로 복사하라고 다시 일러 줌)
-        if (!items.length && Array.isArray(out?.items) && out.items.length) {
-          out = await runLLM(env, sys, ask + '\n\n(주의: 앞서 고른 문장이 원문과 글자가 달라 모두 버려졌습니다. en 에는 원문의 문장을 한 글자도 바꾸지 말고 그대로 복사하세요.)', { max_tokens: 6000 });
-          items = verifyPts(out?.items, src, max);
-        }
-        return { who, items };
-      }, r => r.items.length > 0);
+      return grounded(env, request, `x|${clip(body.ck, 160)}`, () => doExtract(env, body), r => r.items.length > 0);
     }
     if (body.step === 'gqa') {
-      const srcs = srcList(body.sources);
-      if (!srcs.length) return json({ qa: [], debates: [] });
-      return grounded(env, request, `q|${clip(body.ck, 160)}`, async () => {
-        const out = await runLLM(env, GQA_PROMPT,
-          `본문: ${q}\n${clip(body.text, 4000)}\n질문 수: ${clip(body.n, 10) || '2~3'}개\n\n주석 원문 발췌:\n${srcBlock(srcs)}`,
-          { max_tokens: 9000 });
-        const qa = (Array.isArray(out?.qa) ? out.qa : []).slice(0, 8).map(x => {
-          const pts = [];
-          let who = '';
-          for (const p of (Array.isArray(x?.quotes) ? x.quotes : []).slice(0, 4)) {
-            const w = whoHas(p?.en, clip(x?.who, 40).trim(), srcs);
-            const ko = clip(p?.ko, 2000).trim();
-            if (!w || !ko || !/[가-힣]/.test(ko) || (who && w !== who)) continue;
-            who = w;
-            pts.push({ en: clip(p.en, 1500).trim(), ko });
-          }
-          return { q: clip(x?.q, 200).trim(), who, pts };
-        }).filter(x => x.q && x.pts.length);
-        const debates = (Array.isArray(out?.debates) ? out.debates : []).slice(0, 3).map(d => {
-          const views = [];
-          for (const v of (Array.isArray(d?.views) ? d.views : []).slice(0, 4)) {
-            const w = whoHas(v?.en, clip(v?.who, 40).trim(), srcs);
-            const ko = clip(v?.ko, 2000).trim();
-            if (!w || !ko || !/[가-힣]/.test(ko) || views.some(x => x.who === w)) continue;
-            views.push({ who: w, en: clip(v.en, 1500).trim(), ko });
-          }
-          return { issue: clip(d?.issue, 200).trim(), views };
-        }).filter(d => d.issue && d.views.length >= 2);
-        return { qa, debates };
-      }, r => r.qa.length > 0 || r.debates.length > 0);
+      if (!srcList(body.sources).length) return json({ qa: [], debates: [] });
+      return grounded(env, request, `q|${clip(body.ck, 160)}`, () => doGqa(env, body), r => r.qa.length > 0 || r.debates.length > 0);
     }
     if (body.step === 'gask') {
       const srcs = srcList(body.sources);
@@ -527,21 +561,8 @@ async function handleAsk(request, env) {
       }, () => false);
     }
     if (body.step === 'paras') {
-      const notes = (Array.isArray(body.notes) ? body.notes : []).slice(0, 14)
-        .map(n => ({ v: Number(n?.v) || 0, text: clip(n?.text, 1500).trim() })).filter(n => n.v > 0 && n.text);
-      if (!notes.length) return json({ paras: [] });
-      return grounded(env, request, `p|${clip(body.ck, 160)}`, async () => {
-        const out = await runLLM(env, PARAS_PROMPT, `${q}\n\n${notes.map(n => `[v=${n.v}]\n${n.text}`).join('\n\n')}`, { max_tokens: 7000 });
-        const paras = [];
-        for (const p of (Array.isArray(out?.paras) ? out.paras : []).slice(0, 16)) {
-          const v = Number(p?.v) || 0;
-          const note = notes.find(n => n.v === v);
-          if (!note || paras.some(x => x.v === v)) continue;
-          const [pt] = verifyPts([p], note.text, 1);
-          if (pt) paras.push({ v, ...pt });
-        }
-        return { paras };
-      }, r => r.paras.length > 0, { free: true });
+      if (!parasNotes(body.notes).length) return json({ paras: [] });
+      return grounded(env, request, `p|${clip(body.ck, 160)}`, () => doParas(env, body), r => r.paras.length > 0, { free: true });
     }
 
     if (body.step === 'topic') {
@@ -768,6 +789,456 @@ async function handleAsk(request, env) {
   }
 }
 
+/* ================================================================
+   🌙 저녁 미리 만들기 (Cron · v1.9.5)
+   무료 AI 사용량(하루 10,000 뉴런)은 한국 시간 오전 9시(미국 동부 저녁 8시, 겨울엔 7시)에
+   새로 채워집니다. 그 직전 한 시간(UTC 23시) 동안 5분마다 깨어나, 그날 남은 양으로
+   ① 사람들이 읽은 장의 "다음 장" → ② 많이 읽는 책 순서로
+   단락 요약 · 배경 · (하루 최대 3개) 장 깊은 해설을 미리 만들어 D1에 넣어 둡니다.
+   - 만드는 방법은 폰이 부를 때와 똑같습니다 (주석 원문에서 고르고 번역만, 서버가 원문 확인).
+   - 그날 쓴 양이 STOP(8,500)을 넘으면 바로 멈춥니다. 실패해도 다음 날 다시 시도.
+   ================================================================ */
+const CRON_STOP = 8500;          // 하루 10,000 가운데 여기까지만 (사람들이 쓸 몫 남김)
+const CRON_DEEP_PER_DAY = 3;     // 장 깊은 해설은 하루 최대 3개
+const CRON_CALLS = 6;            // 한 번 깨어날 때 AI 호출 최대 횟수
+const CH = [50,40,27,36,34,24,21,4,31,24,22,25,29,36,10,13,10,42,150,31,12,8,66,52,5,48,12,14,3,9,1,4,7,3,3,3,2,14,4,28,16,24,21,28,16,16,13,6,6,4,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22];
+const KO_NAME = ['창세기','출애굽기','레위기','민수기','신명기','여호수아','사사기','룻기','사무엘상','사무엘하','열왕기상','열왕기하','역대상','역대하','에스라','느헤미야','에스더','욥기','시편','잠언','전도서','아가','이사야','예레미야','예레미야애가','에스겔','다니엘','호세아','요엘','아모스','오바댜','요나','미가','나훔','하박국','스바냐','학개','스가랴','말라기',
+  '마태복음','마가복음','누가복음','요한복음','사도행전','로마서','고린도전서','고린도후서','갈라디아서','에베소서','빌립보서','골로새서','데살로니가전서','데살로니가후서','디모데전서','디모데후서','디도서','빌레몬서','히브리서','야고보서','베드로전서','베드로후서','요한일서','요한이서','요한삼서','유다서','요한계시록'];
+const USFM_ = ['GEN','EXO','LEV','NUM','DEU','JOS','JDG','RUT','1SA','2SA','1KI','2KI','1CH','2CH','EZR','NEH','EST','JOB','PSA','PRO','ECC','SNG','ISA','JER','LAM','EZK','DAN','HOS','JOL','AMO','OBA','JON','MIC','NAM','HAB','ZEP','HAG','ZEC','MAL',
+  'MAT','MRK','LUK','JHN','ACT','ROM','1CO','2CO','GAL','EPH','PHP','COL','1TH','2TH','1TI','2TI','TIT','PHM','HEB','JAS','1PE','2PE','1JN','2JN','3JN','JUD','REV'];
+// 많이 읽는 책 순서: 복음서 → 사도행전 → 로마서 → 창세기 → 시편 → 요한일서·에베소서·빌립보서·히브리서·야고보서 … → 나머지
+const POP_FIRST = [39, 40, 41, 42, 43, 44, 0, 18, 61, 48, 49, 57, 58, 47, 50, 45, 46, 1, 19, 22, 51, 52, 53, 54, 55, 56, 59, 60, 62, 63, 64, 65];
+const POPULAR = [...POP_FIRST, ...CH.map((_, i) => i).filter(i => !POP_FIRST.includes(i))];
+const POP_LIST = POPULAR.flatMap(b => Array.from({ length: CH[b] }, (_, i) => [b, i + 1]));
+// 앱(study.ts)의 COMMENTARIES 와 같아야 저장 열쇠가 맞습니다
+const CRON_COMMS = [
+  { id: 'john-calvin', name: '칼빈 주석', fb: { id: 'matthew-henry', name: '매튜 헨리 주석' } },
+  { id: 'tyndale', name: '틴데일 스터디 노트' },
+  { id: 'keil-delitzsch', name: '카일·델리취 주석', ot: true },
+  { id: 'jamieson-fausset-brown', name: 'JFB 주석', nt: true },
+];
+const HELLOAO = 'https://bible.helloao.org/api';
+
+/* ---- 하루 AI 사용량 (뉴런) 어림 — Cloudflare 요금표 기준 ---- */
+const RATE = { '@cf/openai/gpt-oss-120b': [31.818, 68.182], '@cf/meta/llama-4-scout-17b-16e-instruct': [24.545, 77.273] };  // 1천 토큰당 [입력, 출력]
+// 저녁 작업 중일 때만 씀: 바깥 요청(D1·fetch·AI) 수와 AI 사용량을 모아 둠 (무료: 한 번에 50개까지)
+let CRON = null;
+function neuronsOf(model, r, inChars, outChars) {
+  const [ri, ro] = RATE[model] || [31.818, 68.182];
+  const u = r?.usage || {};
+  const tin = Number(u.prompt_tokens) || inChars / 2.5;
+  const tout = Number(u.completion_tokens) || outChars / 1.5 + 800;   // 생각(추론) 몫을 넉넉히
+  return (tin * ri + tout * ro) / 1000;
+}
+async function addSpend(env, n) {
+  if (CRON) { CRON.spend += n; return; }   // 저녁 작업은 끝날 때 한 번에 적음
+  if (!env.DB || !n) return;
+  try { await env.DB.prepare('INSERT INTO spend (d, n) VALUES (?, ?) ON CONFLICT(d) DO UPDATE SET n = n + excluded.n').bind(today(), n).run(); } catch { /* 무시 */ }
+}
+async function spentToday(env) {
+  try { const r = await env.DB.prepare('SELECT n FROM spend WHERE d = ?').bind(today()).first(); return Number(r?.n) || 0; } catch { return 0; }
+}
+async function metaGet(env, k) {
+  try { const r = await env.DB.prepare('SELECT v FROM meta WHERE k = ?').bind(k).first(); return r ? r.v : null; } catch { return null; }
+}
+async function metaSet(env, k, v) {
+  try { await env.DB.prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind(k, String(v)).run(); } catch { /* 무시 */ }
+}
+async function markPre(env, k, t) {
+  try { await env.DB.prepare('INSERT OR REPLACE INTO pre (k, t) VALUES (?, ?)').bind(k, t).run(); } catch { /* 무시 */ }
+}
+
+/* ---- 읽은 장 기록 (폰이 한 장을 5초 넘게 펴 두면 알려 줌 · 장 번호만, 사람 정보 없음) ---- */
+async function noteRead(env, ck) {
+  const k = clip(ck, 10);
+  const m = k.match(/^(\d{1,2})\.(\d{1,3})$/);
+  if (!m || +m[1] > 65 || +m[2] < 1 || +m[2] > CH[+m[1]] || !(await dbOn(env))) return;
+  try { await env.DB.prepare('INSERT OR REPLACE INTO reads (k, t) VALUES (?, ?)').bind(k, Date.now()).run(); } catch { /* 무시 */ }
+}
+const nextOf = (b, c) => (c < CH[b] ? [b, c + 1] : b < 65 ? [b + 1, 1] : null);
+
+/* ---- helloao 자료 받기 (크면 건너뜀 — 무료 Worker 는 CPU 10ms 제한) ---- */
+async function getJson(url, maxBytes = 400000) {
+  if (CRON) CRON.sub++;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const t = await r.text();
+  if (t.length > maxBytes) return null;
+  try { return JSON.parse(t); } catch { return null; }
+}
+function itemTextW(it) {
+  return (it?.content || []).map(x => (typeof x === 'string' ? x : x?.text || '')).join('\n');
+}
+const LATIN_W = /\b(est|et|qui|quae|quod|non|sed|enim|nos|nobis|ut|per|autem|sunt|cum|ad|Dei|Christi|in|Deus|esse|nisi|vel|atque)\b/g;
+function isLatinW(p) { const w = p.split(/\s+/).length; return w > 8 && (p.match(LATIN_W)?.length || 0) / w > 0.18; }
+function cleanParas(raw) {
+  return raw.replace(/\[\d+\]/g, '').replace(/[ \t]+/g, ' ').split(/\n\s*\n/).map(p => p.trim())
+    .filter(p => p.length > 30 && !isLatinW(p) && !(/^\d+\.\s/.test(p) && p.length < 350) && !/^[A-Z][a-z]+ \d+:\d+(-\d+)?$/.test(p))
+    .join('\n');
+}
+/** 앱의 chapterExcerpt 와 같은 방식(장 전체에서 고르게)이지만, 고를 부분만 손질해서 CPU를 아낌 */
+function cronExcerpt(items, max) {
+  const its = items.filter(i => typeof i.number === 'number').sort((a, b) => a.number - b.number)
+    .map(it => ({ n: it.number, raw: itemTextW(it) })).filter(x => x.raw.length > 30);
+  if (!its.length) return '';
+  const rawTotal = its.reduce((n, x) => n + x.raw.length, 0);
+  if (rawTotal <= max * 1.3) {
+    const all = its.map(x => ({ n: x.n, t: cleanParas(x.raw) })).filter(x => x.t.length > 30);
+    const total = all.reduce((n, x) => n + x.t.length, 0);
+    if (total <= max) return all.map(x => `(${x.n}절~) ${x.t}`).join('\n\n');
+  }
+  const k = Math.max(1, Math.min(its.length, Math.floor(max / 350)));
+  const per = Math.floor(max / k);
+  const out = [];
+  let j = 0;
+  for (let i = 0; i < k && j < its.length; i++) {
+    j = Math.max(j, Math.floor(i * its.length / k));
+    // 라틴어 본문 등으로 비면 다음 항목으로
+    for (; j < its.length; j++) {
+      const t0 = cleanParas(its[j].raw.slice(0, per * 4));
+      if (t0.length <= 30) continue;
+      let t = t0.slice(0, per);
+      const cut = Math.max(t.lastIndexOf('. '), t.lastIndexOf('; '));
+      if (t0.length > per && cut > per * 0.5) t = t.slice(0, cut + 1);
+      out.push(`(${its[j].n}절~) ${t}${t0.length > t.length || its[j].raw.length > per * 4 ? ' …' : ''}`);
+      j++;
+      break;
+    }
+  }
+  return out.join('\n\n');
+}
+/** 틴데일 노트 가운데 3절 이상을 묶는 "단락 노트" (앱 paras.ts 와 같음) */
+function rangeNotesW(items, chapter) {
+  const out = [];
+  for (const it of items) {
+    for (const para of itemTextW(it).split('\n')) {
+      const t = para.trim();
+      const m = t.match(/^(\d+):(\d+)\s*[–-]\s*(?:(\d+):)?(\d+)\b/);
+      if (!m || Number(m[1]) !== chapter) continue;
+      const v = Number(m[2]);
+      const endCh = m[3] ? Number(m[3]) : chapter;
+      if (endCh === chapter && Number(m[4]) - v < 2) continue;
+      if (out.some(x => x.v === v)) continue;
+      out.push({ v, text: t.slice(0, 1500) });
+    }
+  }
+  return out.sort((a, b) => a.v - b.v).slice(0, 14);
+}
+/* 책 소개 나누기 (앱 study.ts 와 같음) */
+function introSectionsW(t) {
+  const ps = t.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  const out = [];
+  let cur = { h: '', ps: [] };
+  for (const x of ps) {
+    if (x.length < 50 && !/[.:;,]$/.test(x) && !x.startsWith('•')) { out.push(cur); cur = { h: x, ps: [] }; }
+    else cur.ps.push(x);
+  }
+  out.push(cur);
+  return out;
+}
+function chapRangesW(x, eng) {
+  const r = [];
+  const add = (a, b) => r.push([+a, +(b || a)]);
+  for (const m of x.matchAll(/\b(?:[Cc]hapters?|chs?|[Pp]salms?)\.? (\d+)(?:\s*[–-]\s*(\d+))?/g)) add(m[1], m[2]);
+  if (eng) for (const m of x.matchAll(new RegExp(`\\b${eng} (\\d+)\\s*[–-]\\s*(\\d+)\\b(?!:)`, 'g'))) add(m[1], m[2]);
+  for (const m of x.matchAll(/\((\d+):\d+(?:[–-](\d+)(?::(\d+))?)?/g)) r.push([+m[1], m[3] ? +m[2] : +m[1]]);
+  return r;
+}
+const ENG_W = { GEN: 'Genesis', EXO: 'Exodus', LEV: 'Leviticus', NUM: 'Numbers', DEU: 'Deuteronomy', ISA: 'Isaiah', JER: 'Jeremiah', EZK: 'Ezekiel', DAN: 'Daniel', JOB: 'Job', PRO: 'Proverbs' };
+function chapterParaW(t, book, c) {
+  const sum = introSectionsW(t).find(x => /^summary/i.test(x.h));
+  if (!sum) return null;
+  let bi = -1, span = 1e9;
+  const eng = ENG_W[USFM_[book]] || '';
+  sum.ps.forEach((x, i) => {
+    for (const [a, b] of chapRangesW(x, eng)) if (a <= c && c <= b && b - a < span) { span = b - a; bi = i; }
+  });
+  if (bi >= 0) {
+    let lo = c, hi = c;
+    for (const [a, b] of chapRangesW(sum.ps[bi], eng)) if (a <= c && c <= b && b - a >= hi - lo) { lo = a; hi = b; }
+    return { text: sum.ps[bi], range: lo === hi ? `${lo}장` : `${lo}–${hi}장`, key: `q${bi}` };
+  }
+  const all = sum.ps.join('\n\n');
+  return all.length > 80 ? { text: all.slice(0, 4000), range: '', key: `c${c}` } : null;
+}
+/** 본문(BSB 영어)과 그 소제목 — 궁금증 풀이에 본문 대신 넣음 (폰에서는 개역개정을 넣음) */
+async function bsbChapter(book, c) {
+  const j = await getJson(`${HELLOAO}/BSB/${USFM_[book]}/${c}.json`, 200000).catch(() => null);
+  const heads = [], lines = [];
+  for (const it of j?.chapter?.content || []) {
+    if (it.type === 'heading') heads.push(itemTextW(it).trim());
+    else if (it.type === 'verse') {
+      if (heads.length && !heads[heads.length - 1].includes('절 ')) heads[heads.length - 1] = `${it.number}절 ${heads[heads.length - 1]}`;
+      lines.push(`${it.number} ${itemTextW(it).replace(/\s+/g, ' ').trim().slice(0, 90)}`);
+    }
+  }
+  return { heads, lines };
+}
+const chapLabel = (b, c) => `${KO_NAME[b]} ${c}${b === 18 ? '편' : '장'}`;
+const keyOf = k => `${CACHE_VER}|${k}`;
+
+/* ---- 무엇이 이미 있는지 한 번에 확인 ---- */
+async function haveKeys(env, keys) {
+  const has = new Set();
+  for (let i = 0; i < keys.length; i += 90) {
+    const part = keys.slice(i, i + 90);
+    const qs = part.map(() => '?').join(',');
+    try {
+      const r = await env.DB.prepare(`SELECT k FROM ai WHERE k IN (${qs}) UNION ALL SELECT k FROM pre WHERE k IN (${qs})`).bind(...part, ...part).all();
+      for (const x of r.results || []) has.add(x.k);
+    } catch { /* 무시 */ }
+  }
+  return has;
+}
+const lightKeys = (b, c) => [keyOf(`p|${b}.${c}`), `p:${b}.${c}`, `g:${b}.${c}`];
+const deepKeys = (b, c) => [keyOf(`q|c|${b}.${c}`), `d:${b}.${c}`];
+const lightDone = (has, b, c) => (has.has(keyOf(`p|${b}.${c}`)) || has.has(`p:${b}.${c}`)) && has.has(`g:${b}.${c}`);
+const deepDone = (has, b, c) => has.has(keyOf(`q|c|${b}.${c}`)) || has.has(`d:${b}.${c}`);
+
+/* ---- ① 단락 요약 + 배경 (한 장) ---- */
+async function cronLight(env, st, b, c, has) {
+  const ck = `${b}.${c}`;
+  st.log.push(`light ${ck}`);
+  if (!has.has(keyOf(`p|${ck}`)) && !has.has(`p:${ck}`)) {
+    const j = await getJson(`${HELLOAO}/c/tyndale/${USFM_[b]}/${c}.json`);
+    const notes = j?.chapter?.content ? rangeNotesW(j.chapter.content, c) : [];
+    if (notes.length) {
+      st.calls++;
+      const r = await doParas(env, { q: `${KO_NAME[b]} ${c}장`, notes });
+      if (r.paras.length) await sharedPut(env, keyOf(`p|${ck}`), r);
+    }
+    await markPre(env, `p:${ck}`, Date.now());
+  }
+  if (!has.has(`g:${ck}`) && st.calls < CRON_CALLS) {
+    if (st.intro[b] === undefined) {
+      const j = await getJson(`${HELLOAO}/c/tyndale/${USFM_[b]}/1.json`).catch(() => null);
+      st.intro[b] = String(j?.book?.introduction || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    const intro = st.intro[b];
+    let needBook = c === 1 || CH[b] === 1;
+    if (intro && !needBook) {
+      const para = chapterParaW(intro, b, c);
+      if (!para) needBook = true;
+      else if (!(await sharedGet(env, keyOf(`x|bc|${b}|${para.key}`)))) {
+        const { heads } = await bsbChapter(b, c);
+        const hs = heads.map(h => h.replace(/^\d+절 /, '')).join(', ');
+        st.calls++;
+        const r = await doExtract(env, {
+          style: 'easy', who: '틴데일 스터디 노트 (책 소개)', source: para.text,
+          focus: para.range
+            ? `${KO_NAME[b]} ${para.range}이 무슨 내용이고 책 전체에서 어떤 부분인지 (특히 ${c}장${hs ? ': ' + hs : ''})`
+            : `${KO_NAME[b]} ${c}장의 내용${hs ? ' (' + hs + ')' : ''}`,
+          n: '2~3', max: 3,
+        });
+        if (r.items.length) await sharedPut(env, keyOf(`x|bc|${b}|${para.key}`), r);
+        else needBook = true;   // 앱도 이럴 때 책 전체 배경을 보여 줌
+      }
+    }
+    if (intro && needBook && st.calls < CRON_CALLS && !(await sharedGet(env, keyOf(`x|b2|${b}`)))) {
+      const secs = introSectionsW(intro);
+      const set = secs.find(x => /^(setting|historical setting|background)/i.test(x.h));
+      const src = [secs[0]?.ps[0] || '', ...(set?.ps || [])].join('\n\n') || intro;
+      st.calls++;
+      const r = await doExtract(env, {
+        style: 'easy', who: '틴데일 스터디 노트 (책 소개)', source: src.slice(0, 5000),
+        focus: `${KO_NAME[b]}을(를) 처음 읽는 성도가 꼭 알아야 할 큰 그림 — 언제, 어디서, 누가, 누구에게, 어떤 상황에서 쓰였는가. 연도·왕·전투 이름이 줄줄이 나오는 문장보다 상황을 한눈에 알려 주는 문장`,
+        n: '3~4', max: 4,
+      });
+      if (r.items.length) await sharedPut(env, keyOf(`x|b2|${b}`), r);
+    }
+    await markPre(env, `g:${ck}`, Date.now());
+  }
+  return true;
+}
+
+/* ---- ② 장 깊은 해설 (여러 번에 나눠: 주석 받기 → 주석마다 고르기 → 궁금증 풀이) ---- */
+async function cronDeep(env, st, job) {
+  const { b, c } = job;
+  const ck = `${b}.${c}`;
+  const label = chapLabel(b, c);
+  const list = CRON_COMMS.filter(x => (!x.ot || b < 39) && (!x.nt || b >= 39));
+  const save = () => metaSet(env, 'job', JSON.stringify(job));
+  if (job.srcs.length < list.length) {
+    if (st.heavy >= 2) return false;          // 큰 주석은 한 번 깨어날 때 둘까지만 (CPU 10ms 제한 · 하나에 1~2ms)
+    st.heavy++;
+    job.tries = (job.tries || 0) + 1;
+    if (job.tries > 2) { job.srcs.push(null); job.tries = 0; await save(); return true; }   // 두 번 실패하면 건너뜀
+    await save();
+    const cm = list[job.srcs.length];
+    let got = null;
+    for (const s of cm.fb ? [cm, cm.fb] : [cm]) {
+      const j = await getJson(`${HELLOAO}/c/${s.id}/${USFM_[b]}/${c}.json`).catch(() => null);
+      const text = Array.isArray(j?.chapter?.content) ? cronExcerpt(j.chapter.content, 6500) : '';
+      if (text.length > 80) { got = { who: s.name, text }; break; }
+    }
+    job.srcs.push(got); job.tries = 0;
+    st.log.push(`src ${ck} ${got ? got.who : '-'}`);
+    await save();
+    return true;
+  }
+  const focus = `${label} 전체 — 이 장의 핵심 주제와 구조, 특히 중요한 절과 그 해석`;
+  job.done = job.done || [];
+  for (let i = 0; i < job.srcs.length; i++) {
+    const s = job.srcs[i];
+    if (!s || job.done.includes(i)) continue;
+    if (st.calls >= CRON_CALLS) return false;
+    const k = keyOf(`x|c|${ck}|${s.who}`);
+    if (!(await sharedGet(env, k))) {
+      st.calls++;
+      const r = await doExtract(env, { who: s.who, source: s.text, focus, n: '3~5', max: 6 });
+      if (r.items.length) await sharedPut(env, k, r);
+    }
+    job.done.push(i);
+    st.log.push(`ext ${ck} ${s.who}`);
+    await save();
+    return true;
+  }
+  const sources = job.srcs.filter(Boolean).map(x => ({ who: x.who, text: x.text.slice(0, 2600) }));
+  if (sources.length && !(await sharedGet(env, keyOf(`q|c|${ck}`)))) {
+    if (st.calls >= CRON_CALLS) return false;
+    const { heads, lines } = await bsbChapter(b, c);
+    const text = `(소제목: ${heads.join(' / ') || '없음'})\n` + lines.join('\n').slice(0, 4000);
+    st.calls++;
+    const r = await doGqa(env, { q: label, text, n: '3~4', sources });
+    if (r.qa.length || r.debates.length) await sharedPut(env, keyOf(`q|c|${ck}`), r);
+  }
+  await markPre(env, `d:${ck}`, sources.length ? Date.now() : 1);   // 주석이 하나도 없던 장은 오늘 개수에 안 셈
+  await metaSet(env, 'job', '');
+  st.job = null;
+  st.log.push(`deep ${ck} 끝`);
+  return true;
+}
+
+const isQuota = e => /neuron|quota|4006|exceeded/i.test(String(e?.message || e));
+/** AI 한도 오류가 아니면 그 장은 건너뛰고 계속 (한 장 때문에 매일 막히지 않게) */
+async function soft(st, what, fn) {
+  try { return await fn(); } catch (e) {
+    if (isQuota(e)) throw e;
+    st.log.push(`건너뜀 ${what}: ${String(e?.message || e).slice(0, 60)}`);
+    return 'fail';
+  }
+}
+async function cronStep(env, st) {
+  if (st.job) {
+    const job = st.job;
+    const r = await soft(st, `deep ${job.b}.${job.c}`, () => cronDeep(env, st, job));
+    if (r === false) return false;   // 이번에 할 몫을 다 씀 → 다음에 이어서
+    if (r === 'fail') {   // 두 번 실패하면 이 장은 그만 (이미 만든 부분은 그대로 쓰임)
+      job.fails = (job.fails || 0) + 1;
+      if (job.fails >= 2) { await markPre(env, `d:${job.b}.${job.c}`, 2); await metaSet(env, 'job', ''); st.job = null; }
+      else await metaSet(env, 'job', JSON.stringify(job));
+    }
+    return true;
+  }
+  // ① 사람들이 읽은 장의 다음 장 (최근 3일)
+  if (!st.nexts) {
+    let rows = [];
+    try { rows = (await env.DB.prepare('SELECT k FROM reads WHERE t > ? ORDER BY t DESC LIMIT 20').bind(Date.now() - 3 * 864e5).all()).results || []; } catch { /* 무시 */ }
+    const seen = new Set();
+    st.nexts = rows.map(r => r.k.split('.').map(Number)).map(([b, c]) => nextOf(b, c)).filter(x => x && !seen.has(x.join('.')) && seen.add(x.join('.')));
+    st.has = await haveKeys(env, st.nexts.flatMap(([b, c]) => [...lightKeys(b, c), ...deepKeys(b, c)]));
+  }
+  const n1 = st.nexts.find(([b, c]) => !lightDone(st.has, b, c));
+  if (n1) { await lightSafe(env, st, n1); return true; }
+  // ② 장 깊은 해설 (하루 최대 3개): 다음 장 먼저, 없으면 많이 읽는 책 순서로
+  if (st.deepLeft === undefined) {
+    let n = 0;
+    try { n = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM pre WHERE k LIKE 'd:%' AND t >= ?").bind(Date.parse(today())).first())?.n) || 0; } catch { /* 무시 */ }
+    st.deepLeft = CRON_DEEP_PER_DAY - n;
+  }
+  if (st.deepLeft > 0) {
+    let t = st.nexts.find(([b, c]) => !deepDone(st.has, b, c));
+    if (!t) t = await popScan(env, st, 'pd', deepKeys, deepDone);
+    if (t) {
+      st.deepLeft--;
+      deepKeys(...t).forEach(k => st.has.add(k));
+      st.job = { b: t[0], c: t[1], srcs: [] };
+      await metaSet(env, 'job', JSON.stringify(st.job));
+      st.log.push(`deep ${t.join('.')} 시작`);
+      return true;
+    }
+  }
+  // ③ 많이 읽는 책 순서로 단락 요약 + 배경
+  const t = await popScan(env, st, 'pc', lightKeys, lightDone);
+  if (t) { await lightSafe(env, st, t); return true; }
+  return false;
+}
+async function lightSafe(env, st, [b, c]) {
+  const r = await soft(st, `light ${b}.${c}`, () => cronLight(env, st, b, c, st.has));
+  if (r === 'fail') { await markPre(env, `p:${b}.${c}`, 2); await markPre(env, `g:${b}.${c}`, 2); }
+  lightKeys(b, c).forEach(k => st.has.add(k));
+}
+/** 많이 읽는 책 순서에서 아직 없는 첫 장 (앞쪽이 다 됐으면 표시를 앞으로 옮김) */
+async function popScan(env, st, name, keysFn, doneFn) {
+  let P = st.pop[name];
+  if (!P) P = st.pop[name] = { cur: Number(await metaGet(env, name)) || 0, part: null, saved: -1 };
+  for (let round = 0; round < 3 && P.cur < POP_LIST.length; round++) {
+    if (!P.part) {
+      P.part = POP_LIST.slice(P.cur, P.cur + 15);
+      (await haveKeys(env, P.part.flatMap(([b, c]) => keysFn(b, c)))).forEach(k => st.has.add(k));
+    }
+    const i = P.part.findIndex(([b, c]) => !doneFn(st.has, b, c));
+    if (i >= 0) {
+      if (P.cur + i !== P.saved && i > 0) { P.cur += i; P.part = P.part.slice(i); P.saved = P.cur; await metaSet(env, name, P.cur); }
+      return P.part[0];
+    }
+    P.cur += P.part.length; P.part = null;
+    P.saved = P.cur; await metaSet(env, name, P.cur);
+  }
+  return null;
+}
+
+/** 무료 Worker 는 한 번 깨어날 때 바깥 요청(D1 질의 · fetch · AI) 50개까지 — 세어 가며 멈춤
+    한 단계가 많아야 18개쯤 쓰므로, 29개를 넘으면 새 단계를 시작하지 않음 */
+const CRON_SUB_START = 29;
+function countingDB(db, st) {
+  return {
+    prepare(sql) {
+      const p = db.prepare(sql);
+      const wrap = x => ({
+        bind: (...a) => wrap(x.bind(...a)),
+        first: (...a) => { st.sub++; return x.first(...a); },
+        all: () => { st.sub++; return x.all(); },
+        run: () => { st.sub++; return x.run(); },
+        _raw: x,
+      });
+      return wrap(p);
+    },
+    batch(list) { st.sub++; return db.batch(list.map(x => x._raw || x)); },
+  };
+}
+
+async function runCron(env) {
+  if (!env.AI || !env.DB) return;
+  const st = { calls: 0, heavy: 0, sub: 0, spend: 0, log: [], intro: {}, pop: {} };
+  env = { ...env, DB: countingDB(env.DB, st) };
+  dbReady = false;   // 이 env 로 표 확인 (새로 깨어난 경우 대부분 어차피 필요)
+  if (!(await dbOn(env))) return;
+  const now = Date.now();
+  if (Number(await metaGet(env, 'lock')) > now - 4.5 * 60e3) return;   // 앞의 것이 아직 도는 중
+  if ((await metaGet(env, 'stopd')) === today()) return;               // 오늘 AI 한도에 걸렸음
+  await metaSet(env, 'lock', now);
+  const job = await metaGet(env, 'job');
+  try { st.job = job ? JSON.parse(job) : null; } catch { st.job = null; }
+  CRON = st;
+  try {
+    const base = await spentToday(env);
+    for (let i = 0; i < 12 && st.calls < CRON_CALLS && st.sub <= CRON_SUB_START; i++) {
+      if (base + st.spend >= CRON_STOP) { st.log.push('오늘 몫 다 씀'); break; }
+      if (!(await cronStep(env, st))) break;
+    }
+  } catch (e) {
+    const msg = String(e?.message || e);
+    st.log.push('오류: ' + msg.slice(0, 120));
+    if (isQuota(e)) await metaSet(env, 'stopd', today());
+  } finally {
+    CRON = null;
+    if (st.spend) await addSpend(env, st.spend);
+    await metaSet(env, 'lock', 0);
+    await metaSet(env, 'last', JSON.stringify({ t: new Date(now).toISOString(), calls: st.calls, sub: st.sub + 2, log: st.log.slice(0, 20) }));
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -775,7 +1246,22 @@ export default {
       if (request.method !== 'POST') return json({ error: 'POST only' }, 405);
       return handleAsk(request, env);
     }
-    if (url.pathname === '/api/health') return json({ ok: true, ai: !!env.AI, shared: await dbOn(env) });
+    if (url.pathname === '/api/read') {
+      if (request.method !== 'POST' || request.headers.get('x-sk-app') !== '1') return json({ ok: false }, 403);
+      try { await noteRead(env, (await request.json())?.ck); } catch { /* 무시 */ }
+      return json({ ok: true });
+    }
+    if (url.pathname === '/api/health') {
+      const db = await dbOn(env);
+      if (!db) return json({ ok: true, ai: !!env.AI, shared: false });
+      let made = 0;
+      try { made = Number((await env.DB.prepare('SELECT COUNT(*) AS n FROM pre WHERE t >= ?').bind(Date.parse(today())).first())?.n) || 0; } catch { /* 무시 */ }
+      return json({ ok: true, ai: !!env.AI, shared: true, spentToday: Math.round(await spentToday(env)), preToday: made, lastCron: JSON.parse((await metaGet(env, 'last')) || 'null') });
+    }
     return env.ASSETS.fetch(request);
+  },
+  // 🌙 저녁 미리 만들기 — wrangler.jsonc 의 "triggers" 시간에 Cloudflare가 부름
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runCron(env));
   },
 };

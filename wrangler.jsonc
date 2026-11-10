@@ -9,6 +9,10 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
+  // 🌙 저녁 미리 만들기: 매일 UTC 23시 0~57분, 3분마다 (한국 아침 8시대 · 미국 동부 저녁 7시대, 겨울엔 6시대)
+  "triggers": {
+    "crons": ["*/3 23 * * *"]
+  },
   "ai": {
     "binding": "AI"
   },
