@@ -5,19 +5,27 @@
    ================================================================ */
 import type { BibleData } from './bible';
 import { BOOKS } from './books';
-import { BOOK_INFO } from './bookinfo';
-import { getTranslation, TRANSLATIONS } from './translations';
 import { getHeads } from './headings';
 
 /* ---------- 폰에 저장하는 AI 결과 → aicache.ts (v1.8: IndexedDB) ---------- */
 export { cacheGet, cacheSet } from './aicache';
-export const NS = { find: 'sk-ai-find-v1', chap: 'sk-ai-chap-v1', verse: 'sk-ai-verse-v4', vextra: 'sk-ai-vextra-v1', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v1', term: 'sk-ai-term-v1' };
+// v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v3', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1' };
 
-async function ask<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+/** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
+export function deviceId() {
+  try {
+    let id = localStorage.getItem('sk-dev');
+    if (!id) { id = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); localStorage.setItem('sk-dev', id); }
+    return id;
+  } catch { return ''; }
+}
+
+export async function ask<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
   const res = await fetch('/api/ask', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-sk-app': '1' },
+    headers: { 'content-type': 'application/json', 'x-sk-app': '1', 'x-sk-dev': deviceId() },
     signal,
     body: JSON.stringify(body),
   });
@@ -50,17 +58,17 @@ export const COMMENTARIES: Comm[] = [
   { id: 'keil-delitzsch', name: '카일·델리취 주석', max: 3200, ot: true },
   { id: 'jamieson-fausset-brown', name: 'JFB 주석', max: 3000, nt: true },
 ];
-export const COMMENTARY_CREDIT = '주석 자료: 칼빈 · 매튜 헨리(칼빈 주석이 없는 책) · 카일·델리취 · JFB (공개 저작물), 틴데일 스터디 노트 (CC BY-SA 4.0) — HelloAO Free Use Bible API 제공';
+export const COMMENTARY_CREDIT = '주석 자료: 칼빈 · 매튜 헨리(칼빈 주석이 없는 책) · 카일·델리취 · JFB (공개 저작물), 틴데일 스터디 노트 (CC BY-SA 4.0) — HelloAO Free Use Bible API 제공. AI는 원문 문장을 고르고 번역만 하며, 고른 문장이 원문에 있는지 서버가 확인합니다.';
 /** 이 책에서 읽을 주석 3가지 (인터넷이 없으면 없음) */
 export function commList(book: number): Comm[] {
   return navigator.onLine ? COMMENTARIES.filter(c => (!c.ot || book < 39) && (!c.nt || book >= 39)) : [];
 }
 
 export interface Source { who: string; text: string }
-interface CItem { type?: string; number?: number; content?: unknown[] }
+export interface CItem { type?: string; number?: number; content?: unknown[] }
 const chapCache = new Map<string, Promise<CItem[] | null>>();
 
-function fetchChapter(id: string, book: number, chapter: number): Promise<CItem[] | null> {
+export function fetchChapter(id: string, book: number, chapter: number): Promise<CItem[] | null> {
   const k = `${id}/${USFM[book]}/${chapter}`;
   let p = chapCache.get(k);
   if (!p) {
@@ -77,7 +85,7 @@ function fetchChapter(id: string, book: number, chapter: number): Promise<CItem[
   return p;
 }
 
-function itemText(it: CItem) {
+export function itemText(it: CItem) {
   return (it.content || []).map(x => (typeof x === 'string' ? x : (x as { text?: string })?.text || '')).join('\n');
 }
 
@@ -144,48 +152,32 @@ export async function getSources(book: number, chapter: number, verses: number[]
   return res.filter((x): x is Source => !!x);
 }
 
+/* ================================================================
+   v1.9 근거 있는 해설
+   AI는 주석 원문에서 중요한 문장을 "그대로" 고르고 한국어로 번역만 합니다.
+   고른 문장이 원문에 정말 있는지 서버가 확인하고, 없으면 버립니다 (지어낸 말이 나올 수 없게).
+   화면에는 한국어 번역만 보이고, 문장마다 "원문"을 누르면 영어가 펼쳐집니다.
+   ================================================================ */
+export interface Pt { en: string; ko: string }
+export interface CommPts { who: string; pts: Pt[] }
+export interface GQa { q: string; who: string; pts: Pt[] }
+export interface GView { who: string; en: string; ko: string }
+export interface GDebate { issue: string; views: GView[] }
+export interface GAsk { q: string; quotes: GView[] }
 export interface VerseAi {
-  summary: string;                                   // 핵심
-  background?: string;                               // 꼭 필요한 구체적 배경
-  commentators: { who: string; point: string }[];    // 주석가들은 이렇게 봅니다
-  questions: { q: string; a: string }[];             // 궁금증 풀이
-  debates: { issue: string; views: { view: string; who?: string; why?: string }[] }[]; // 해석이 갈리는 곳
-  links: { ref: string; why: string }[];             // 성경 연결
-  asks?: { q: string; a: string; refs?: string[] }[]; // 내가 더 물어본 것
+  comm: CommPts[];          // 📚 주석가들은 이렇게 봅니다
+  qa: GQa[];                // ❓ 궁금증 풀이 (주석이 실제로 답하는 것만)
+  debates: GDebate[];       // ⚖️ 해석이 갈리는 곳 (주석끼리 다를 때만)
+  asks?: GAsk[];            // 💬 내가 물어본 것
   sourceCount?: number;
-  partial?: boolean;                                 // 일부를 받지 못함 (다시 해설로 채움)
+  partial?: boolean;
 }
-
-function verseInput(data: BibleData, book: number, chapter: number, verses: number[]) {
-  const ch = data[book][chapter - 1];
-  const v = [...verses].sort((a, b) => a - b);
-  const from = Math.max(1, v[0] - 5), to = Math.min(ch.length, v[v.length - 1] + 4);
-  const around: string[] = [];
-  for (let i = from; i <= to; i++) around.push(`${i} ${ch[i - 1]}`);
-  const bi = BOOK_INFO[book];
-  const bookinfo = bi ? `${BOOKS[book].name} — 주제: ${bi.t}\n요약: ${bi.s}\n구조: ${bi.o.split('|').join(' / ')}` : '';
-  return { q: passageLabel(book, chapter, v), text: v.map(x => `${x} ${ch[x - 1]}`).join('\n'), around: around.join('\n'), bookinfo };
-}
-
-export async function askVerse(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal, onPhase?: (p: string) => void) {
-  onPhase?.('주석 자료를 모으는 중…');
-  const [sources, others] = await Promise.all([getSources(book, chapter, verses), otherTranslations(book, chapter, verses)]);
-  if (signal?.aborted) throw new Error('취소됨');
-  onPhase?.(sources.length ? `주석 ${sources.length}권을 읽고 해설을 쓰는 중… (30초~1분)` : '해설을 쓰는 중… (주석 자료를 받지 못해 AI 지식으로만)');
-  const r = await ask<VerseAi>({ step: 'verse', ...verseInput(data, book, chapter, verses), sources, others }, signal);
-  return { ...r, sourceCount: sources.length };
-}
-
-/* ---- 깊은 해설을 나눠서 요청 → 끝난 부분부터 화면에 ----
-   v1.6.5: Cloudflare AI는 한꺼번에 많이 보내면 줄을 서서 오히려 느려지므로,
-   중요한 순서대로 한 번에 최대 4개까지만 보냄 (요약 → 궁금증 → 주석가별 → 성경 연결) */
+type St = 'wait' | 'done' | 'fail';
 export interface DeepProgress {
   ai: VerseAi;
-  collecting: boolean;          // 주석 자료를 모으는 중
-  core: 'wait' | 'done' | 'fail';
-  qa: 'wait' | 'done' | 'fail';
-  links: 'wait' | 'done' | 'fail';
-  comm: { who: string; state: 'wait' | 'done' | 'fail' | 'none' }[];
+  collecting: boolean;
+  qa: St;
+  comm: { who: string; state: St | 'none' }[];
 }
 const AI_SLOTS = 4;
 function makePool(size: number) {
@@ -207,92 +199,91 @@ function makePool(size: number) {
   };
 }
 
-export async function runDeepVerse(data: BibleData, book: number, chapter: number, verses: number[], signal: AbortSignal, onUpdate: (p: DeepProgress) => void): Promise<VerseAi> {
-  const v = [...verses].sort((a, b) => a - b);
-  const input = verseInput(data, book, chapter, v);
+function verseText(data: BibleData, book: number, chapter: number, verses: number[]) {
+  const ch = data[book][chapter - 1];
+  return verses.map(x => `${x} ${ch[x - 1]}`).join('\n');
+}
+
+/** 주석 하나에서 문장 고르기 + 번역 */
+function extract(who: string, source: string, q: string, focus: string, n: string, max: number, ck: string, signal: AbortSignal) {
+  return ask<{ who: string; items: Pt[] }>({ step: 'extract', q, who, source, focus, n, max, ck }, signal);
+}
+
+/** 깊은 해설을 받는 공통 순서: 주석 모으기 → 주석마다 문장 고르기(동시에) + 궁금증 풀이 */
+async function runGrounded(
+  kind: 'v' | 'c', book: number, chapter: number, label: string, text: string, ckBase: string,
+  pick: (c: Comm) => (items: CItem[]) => string, min: number,
+  focus: string, n: string, max: number, qn: string, qClip: number,
+  signal: AbortSignal, onUpdate: (p: DeepProgress) => void,
+): Promise<VerseAi> {
   const list = commList(book);
-  const ai: VerseAi = { summary: '', background: '', commentators: [], questions: [], debates: [], links: [] };
-  const points: string[] = [];
-  const p: DeepProgress = { ai, collecting: list.length > 0, core: 'wait', qa: 'wait', links: 'wait', comm: list.map(c => ({ who: c.name, state: 'wait' })) };
+  if (!list.length) throw new Error('주석 자료는 인터넷이 있어야 받을 수 있습니다');
+  const ai: VerseAi = { comm: [], qa: [], debates: [] };
+  const got: (CommPts | null)[] = list.map(() => null);
+  const p: DeepProgress = { ai, collecting: true, qa: 'wait', comm: list.map(c => ({ who: c.name, state: 'wait' })) };
   const emit = () => {
     if (signal.aborted) return;
-    ai.commentators = p.comm.map((c, i) => ({ who: c.who, point: points[i] || '' })).filter(c => c.point);
+    ai.comm = got.filter((x): x is CommPts => !!x && x.pts.length > 0);
     onUpdate({ ...p, ai: { ...ai }, comm: p.comm.map(c => ({ ...c })) });
   };
-  const setComm = (i: number, state: DeepProgress['comm'][number]['state']) => { p.comm[i].state = state; };
   const pool = makePool(AI_SLOTS);
-  // 주석가별 · 성경 연결은 동시에 2개까지만 → 요약과 궁금증 풀이 자리는 늘 비워 둠
-  const sidePool = makePool(AI_SLOTS - 2);
-  const side = <T,>(pri: number, fn: () => Promise<T>) => sidePool(pri, () => pool(pri, fn));
+  let lastErr = '';
   emit();
-
-  // ① 요약 · 배경 (가장 먼저, 짧게)
-  const coreP = pool(0, () => ask<Pick<VerseAi, 'summary' | 'background'>>({ step: 'verse-core', ...input }, signal))
-    .then(r => { ai.summary = r.summary; ai.background = r.background; p.core = 'done'; emit(); })
-    .catch(() => { p.core = 'fail'; emit(); });
-
-  // 주석 자료 · 다른 번역 모으기 (AI 아님, 동시에)
-  const othersP = otherTranslations(book, chapter, v);
-  let sources: Source[] = [];
   const srcPs = list.map(async (c, i) => {
-    const s = await fetchComm(c, book, chapter, items => excerpt(items, chapter, v, c.max));
+    const s = await fetchComm(c, book, chapter, pick(c), min);
     if (s) { p.comm[i].who = s.who; emit(); }
     return s;
   });
-
-  // ② 궁금증 풀이 · 해석이 갈리는 곳 (가장 길어서 자료가 모이면 바로 시작)
-  const qaP = Promise.all([othersP, Promise.all(srcPs)])
-    .then(([others, ss]) => {
-      p.collecting = false; emit();
-      sources = ss.filter((x): x is Source => !!x);
-      return pool(1, () => ask<Pick<VerseAi, 'questions' | 'debates'>>({ step: 'verse-qa', ...input, others, sources }, signal));
-    })
-    .then(r => { ai.questions = r.questions || []; ai.debates = r.debates || []; p.qa = 'done'; emit(); })
-    .catch(() => { p.qa = 'fail'; emit(); });
-
-  // ③ 주석마다 따로 (빈자리가 나는 대로)
   const commP = Promise.all(list.map(async (_c, i) => {
     const src = await srcPs[i];
-    if (!src) { setComm(i, 'none'); emit(); return; }
+    if (!src) { p.comm[i].state = 'none'; emit(); return; }
     try {
-      const r = await side(2 + i, () => ask<{ point: string }>({ step: 'verse-comm', ...input, who: src.who, source: src.text }, signal));
-      if (r.point) { points[i] = r.point; setComm(i, 'done'); } else setComm(i, 'none');
-    } catch { setComm(i, 'fail'); }
+      const r = await pool(1 + i, () => extract(src.who, src.text, label, focus, n, max, `${kind}|${ckBase}|${src.who}`, signal));
+      got[i] = { who: src.who, pts: r.items || [] };
+      p.comm[i].state = r.items?.length ? 'done' : 'none';
+    } catch (e) { p.comm[i].state = 'fail'; lastErr = (e as Error).message; }
     emit();
   }));
+  let count = 0;
+  const qaP = Promise.all(srcPs).then(ss => {
+    const sources = ss.filter((x): x is Source => !!x).map(x => ({ who: x.who, text: x.text.slice(0, qClip) }));
+    count = sources.length;
+    p.collecting = false; emit();
+    if (!sources.length) return { qa: [], debates: [] };
+    return pool(0, () => ask<{ qa: GQa[]; debates: GDebate[] }>({ step: 'gqa', q: label, text, n: qn, sources, ck: `${kind}|${ckBase}` }, signal));
+  }).then(r => { ai.qa = r.qa || []; ai.debates = r.debates || []; p.qa = 'done'; emit(); })
+    .catch(e => { p.qa = 'fail'; lastErr = (e as Error).message; emit(); });
 
-  // ④ 성경 연결 (맨 나중)
-  const linksP = Promise.all(srcPs).then(() => side(20, () => ask<{ links: VerseAi['links'] }>({ step: 'verse-links', ...input }, signal)))
-    .then(r => { ai.links = r.links || []; p.links = 'done'; emit(); })
-    .catch(() => { p.links = 'fail'; emit(); });
-
-  await Promise.all([coreP, qaP, commP, linksP]);
+  await Promise.all([commP, qaP]);
   if (signal.aborted) throw new Error('취소됨');
-  ai.commentators = p.comm.map((c, i) => ({ who: c.who, point: points[i] || '' })).filter(c => c.point);
-  if (p.core === 'fail' && p.qa === 'fail' && !ai.commentators.length) throw new Error('AI가 해설을 쓰지 못했습니다. 잠시 뒤 다시 시도해 주세요');
-  return { ...ai, sourceCount: sources.length, partial: p.core === 'fail' || p.qa === 'fail' || p.links === 'fail' || p.comm.some(c => c.state === 'fail') };
+  ai.comm = got.filter((x): x is CommPts => !!x && x.pts.length > 0);
+  const anyFail = p.qa === 'fail' || p.comm.some(c => c.state === 'fail');
+  if (!ai.comm.length && !ai.qa.length && anyFail) throw new Error(lastErr || '해설을 받지 못했습니다. 잠시 뒤 다시 시도해 주세요');
+  if (!count) throw new Error('주석 자료를 받지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요');
+  return { ...ai, sourceCount: count, partial: anyFail };
 }
 
+/** 💡 구절 깊은 해설 */
+export function runDeepVerse(data: BibleData, book: number, chapter: number, verses: number[], signal: AbortSignal, onUpdate: (p: DeepProgress) => void): Promise<VerseAi> {
+  const v = [...verses].sort((a, b) => a - b);
+  const label = passageLabel(book, chapter, v);
+  return runGrounded('v', book, chapter, label, verseText(data, book, chapter, v), `${book}.${chapter}.${v.join(',')}`,
+    c => items => excerpt(items, chapter, v, c.max), 40,
+    `${label} — 이 구절의 뜻과 그렇게 읽는 근거`, '2~4', 5, '2~3', 3000, signal, onUpdate);
+}
+
+/** 💬 이 구절에 대해 묻기 — 주석 원문에서 답이 되는 문장만 찾아 번역 */
+export async function askGrounded(data: BibleData, book: number, chapter: number, verses: number[], question: string, signal?: AbortSignal) {
+  const v = [...verses].sort((a, b) => a - b);
+  const sources = (await getSources(book, chapter, v)).map(x => ({ who: x.who, text: x.text.slice(0, 3500) }));
+  if (!sources.length) throw new Error('주석 자료를 받지 못했습니다. 인터넷 연결을 확인해 주세요');
+  return ask<{ quotes: GView[] }>({ step: 'gask', q: question, ref: passageLabel(book, chapter, v), text: verseText(data, book, chapter, v), sources }, signal);
+}
 
 /* ---------- 📘 장 깊은 해설 ----------
-   흐름 · 핵심 절 · 앞뒤 장 · 어려운 곳 · 성경 전체 이야기 · 주석가별
-   (v1.8: 관찰 질문은 빼서 더 빠르고 사용량도 적음) */
-export interface ChapAi {
-  flow: { from: number; to: number; title: string; gist: string }[];
-  key: { v: number; why: string }[];
-  prev: string; next: string;
-  hard: { q: string; a: string }[];
-  canon: { ref: string; why: string }[];
-  commentators: { who: string; point: string }[];
-  sourceCount?: number;
-  partial?: boolean;
-}
-type St = 'wait' | 'done' | 'fail';
-export interface ChapProgress {
-  ai: ChapAi; collecting: boolean;
-  flow: St; hard: St;
-  comm: { who: string; state: St | 'none' }[];
-}
+   🧭 흐름(개역개정 소제목) · 📚 주석가별 · ❓ 어려운 곳(주석이 답하는 것) · ⚖️ 해석이 갈리는 곳 · 🌏 이어지는 구절(관주 자료) */
+export type ChapAi = VerseAi;
+export type ChapProgress = DeepProgress;
 
 /** 주석 한 장 전체에서 고르게 뽑아 max 글자 안으로 (칼빈의 라틴어 본문 등은 뺌) */
 const LATIN = /\b(est|et|qui|quae|quod|non|sed|enim|nos|nobis|ut|per|autem|sunt|cum|ad|Dei|Christi|in|Deus|esse|nisi|vel|atque)\b/g;
@@ -307,7 +298,6 @@ export function chapterExcerpt(items: CItem[], max: number): string {
   if (!all.length) return '';
   const total = all.reduce((n, x) => n + x.t.length, 0);
   if (total <= max) return all.map(x => `(${x.n}절~) ${x.t}`).join('\n\n');
-  // 장 전체에서 고르게: 한 덩어리 최소 350자
   const k = Math.max(1, Math.min(all.length, Math.floor(max / 350)));
   const pick = Array.from({ length: k }, (_, i) => all[Math.floor(i * all.length / k)]);
   const per = Math.floor(max / k);
@@ -319,102 +309,35 @@ export function chapterExcerpt(items: CItem[], max: number): string {
   }).join('\n\n');
 }
 
-function chapInput(data: BibleData, book: number, chapter: number) {
+export function runDeepChapter(data: BibleData, book: number, chapter: number, signal: AbortSignal, onUpdate: (p: ChapProgress) => void): Promise<ChapAi> {
   const ch = data[book][chapter - 1];
-  const per = ch.length > 90 ? 70 : 400;
-  const prevCh = chapter > 1 ? data[book][chapter - 2] : book > 0 ? data[book - 1][data[book - 1].length - 1] : null;
-  const nextCh = chapter < data[book].length ? data[book][chapter] : book < 65 ? data[book + 1][0] : null;
-  const bi = BOOK_INFO[book];
-  return {
-    q: `${BOOKS[book].name} ${chapter}${book === 18 ? '편' : '장'}`,
-    count: ch.length,
-    heads: getHeads(book, chapter).map(h => `${h.v}절 ${h.title}`).join(' / '),
-    text: ch.map((t, i) => `${i + 1} ${t.length > per ? t.slice(0, per) + '…' : t}`).join('\n').slice(0, 12000),
-    prev: prevCh ? prevCh.slice(-3).map((t, i) => `${prevCh.length - 2 + i} ${t}`).join(' ').slice(0, 500) : '',
-    next: nextCh ? nextCh.slice(0, 3).map((t, i) => `${i + 1} ${t}`).join(' ').slice(0, 500) : '',
-    bookinfo: bi ? `${BOOKS[book].name} — 주제: ${bi.t}\n요약: ${bi.s}\n구조: ${bi.o.split('|').join(' / ')}` : '',
-  };
+  const label = `${short(book)} ${chapter}${book === 18 ? '편' : '장'}`;
+  const heads = getHeads(book, chapter).map(h => `${h.v}절 ${h.title}`).join(' / ');
+  const text = `(소제목: ${heads || '없음'})\n` + ch.map((t, i) => `${i + 1} ${t.slice(0, 90)}`).join('\n').slice(0, 4000);
+  return runGrounded('c', book, chapter, label, text, `${book}.${chapter}`,
+    () => items => chapterExcerpt(items, 6500), 80,
+    `${label} 전체 — 이 장의 핵심 주제와 구조, 특히 중요한 절과 그 해석`, '3~5', 6, '3~4', 2600, signal, onUpdate);
 }
 
-export async function runDeepChapter(data: BibleData, book: number, chapter: number, signal: AbortSignal, onUpdate: (p: ChapProgress) => void): Promise<ChapAi> {
-  const input = chapInput(data, book, chapter);
-  const list = commList(book);
-  const ai: ChapAi = { flow: [], key: [], prev: '', next: '', hard: [], canon: [], commentators: [] };
-  const points: string[] = [];
-  const p: ChapProgress = { ai, collecting: list.length > 0, flow: 'wait', hard: 'wait', comm: list.map(c => ({ who: c.name, state: 'wait' })) };
-  const emit = () => {
-    if (signal.aborted) return;
-    ai.commentators = p.comm.map((c, i) => ({ who: c.who, point: points[i] || '' })).filter(c => c.point);
-    onUpdate({ ...p, ai: { ...ai }, comm: p.comm.map(c => ({ ...c })) });
-  };
-  const pool = makePool(AI_SLOTS);
-  const sidePool = makePool(AI_SLOTS - 2);
-  const side = <T,>(pri: number, fn: () => Promise<T>) => sidePool(pri, () => pool(pri, fn));
-  emit();
-
-  // ① 흐름 · 핵심 절 · 앞뒤 장 (맨 위에 나오므로 가장 먼저)
-  const flowP = pool(0, () => ask<Pick<ChapAi, 'flow' | 'key' | 'prev' | 'next'>>({ step: 'chap-flow', ...input }, signal))
-    .then(r => { ai.flow = r.flow || []; ai.key = r.key || []; ai.prev = r.prev || ''; ai.next = r.next || ''; p.flow = 'done'; emit(); })
-    .catch(() => { p.flow = 'fail'; emit(); });
-
-  // 주석 자료 모으기 (AI 아님) — 3가지라서 하나하나 더 길게
-  const srcs = list.map(async (c, i) => {
-    const s = await fetchComm(c, book, chapter, items => chapterExcerpt(items, 6500), 80);
-    if (s) { p.comm[i].who = s.who; emit(); }
-    return s;
-  });
-
-  // ② 어려운 곳 풀이 · 성경 전체 이야기 (주석을 참고)
-  const hardP = Promise.all(srcs)
-    .then(ss => {
-      p.collecting = false; emit();
-      const sources = ss.filter((x): x is Source => !!x).map(x => ({ who: x.who, text: x.text.slice(0, 1200) }));
-      return pool(1, () => ask<Pick<ChapAi, 'hard' | 'canon'>>({ step: 'chap-hard', ...input, sources }, signal));
-    })
-    .then(r => { ai.hard = r.hard || []; ai.canon = r.canon || []; p.hard = 'done'; emit(); })
-    .catch(() => { p.hard = 'fail'; emit(); });
-
-  // ③ 주석마다 따로 (본문 대신 소제목만 보내 사용량을 아낌)
-  const { text: _t, prev: _p, next: _n, bookinfo: _b, ...light } = input; // eslint-disable-line @typescript-eslint/no-unused-vars
-  const commP = Promise.all(list.map(async (_c, i) => {
-    const src = await srcs[i];
-    if (!src) { p.comm[i].state = 'none'; emit(); return; }
-    try {
-      const r = await side(2 + i, () => ask<{ point: string }>({ step: 'chap-comm', ...light, who: src.who, source: src.text }, signal));
-      if (r.point) { points[i] = r.point; p.comm[i].state = 'done'; } else p.comm[i].state = 'none';
-    } catch { p.comm[i].state = 'fail'; }
-    emit();
-  }));
-
-  await Promise.all([flowP, hardP, commP]);
-  if (signal.aborted) throw new Error('취소됨');
-  ai.commentators = p.comm.map((c, i) => ({ who: c.who, point: points[i] || '' })).filter(c => c.point);
-  if (p.flow === 'fail' && p.hard === 'fail' && !ai.commentators.length) throw new Error('AI가 해설을 쓰지 못했습니다. 잠시 뒤 다시 시도해 주세요');
-  return { ...ai, sourceCount: (await Promise.all(srcs)).filter(Boolean).length, partial: p.flow === 'fail' || p.hard === 'fail' || p.comm.some(c => c.state === 'fail') };
-}
-
-/** 🧭 책 전체 흐름 + 🎓 현대 학자들의 견해 — 주석 해설과 따로 (주석 해설이 짧아지지 않게) */
-export interface VerseExtra { bookflow: string; modern: { who: string; point: string }[] }
-export function askVerseExtra(data: BibleData, book: number, chapter: number, verses: number[], signal?: AbortSignal) {
-  return ask<VerseExtra>({ step: 'verse-extra', ...verseInput(data, book, chapter, verses) }, signal);
-}
-
-/** 새번역 · 쉬운성경 본문 (AI가 번역 차이를 참고하도록, 못 받으면 빈 문자열) */
-async function otherTranslations(book: number, chapter: number, verses: number[]) {
-  const v = [...verses].sort((a, b) => a - b);
-  const timeout = new Promise<null>(r => setTimeout(() => r(null), 6000));
-  const parts = await Promise.all(TRANSLATIONS.map(async t => {
-    const r = await Promise.race([getTranslation(t.id, book, chapter, v).catch(() => null), timeout]);
-    return r ? `[${t.name}] ` + v.map((x, i) => `${x} ${r[i]}`).join(' ') : '';
-  }));
-  return parts.filter(Boolean).join('\n');
-}
-
-/** 해설을 본 뒤 그 구절에 대해 더 묻기 */
-export async function askVerseMore(data: BibleData, book: number, chapter: number, verses: number[], question: string, prev: VerseAi | undefined, signal?: AbortSignal) {
-  const sources = await getSources(book, chapter, verses);
-  const brief = prev ? [prev.summary, ...(prev.asks || []).slice(-3).map(x => `Q: ${x.q}\nA: ${x.a}`)].join('\n').slice(0, 2500) : '';
-  return ask<{ answer: string; refs: string[] }>({ step: 'verse-ask', ...verseInput(data, book, chapter, verses), question, brief, sources }, signal);
+/** 이 장 전체의 관주(관련 구절)를 모아, 많이 이어지는 구절부터 (다른 책 · 다른 장만) */
+export async function chapterLinks(book: number, chapter: number, count: number, max = 8): Promise<(XRef & { from: number })[]> {
+  const d = await loadXref();
+  const tally = new Map<string, { x: XRef; from: number; n: number }>();
+  for (let v = 1; v <= count; v++) {
+    const s = d[`${book}.${chapter}.${v}`];
+    if (!s) continue;
+    s.split(' ').forEach((r, rank) => {
+      const x = parseX(r);
+      if (x.book === book && x.chapter === chapter) return;
+      const k = `${x.book}.${x.chapter}.${x.verse}`;
+      const t = tally.get(k);
+      const w = rank < 3 ? 2 : 1;
+      if (t) t.n += w; else tally.set(k, { x, from: v, n: w });
+    });
+  }
+  return [...tally.values()].sort((a, b) => b.n - a.n).slice(0, max)
+    .sort((a, b) => a.x.book - b.x.book || a.x.chapter - b.x.chapter || a.x.verse - b.x.verse)
+    .map(t => ({ ...t.x, from: t.from }));
 }
 
 /* ---------- ④ 낱말 풀이 + ⑤ 인물·지명 ---------- */
@@ -433,26 +356,30 @@ export function askTerm(term: string, where: string, signal?: AbortSignal) {
   return ask<TermAi>({ step: 'term', q: term, where }, signal);
 }
 
-/* ---------- ② 장 배경 카드 ---------- */
-export interface BgAi {
-  era: string;              // 시대
-  place: string;            // 장소
-  people: string;           // 등장인물
-  flow: string;             // 앞 장과의 연결 / 흐름
-  summary: string;          // 이 장 요약
-  key: { v: number; why: string }[]; // 핵심 구절
+/* ---------- ② 배경 보기: 틴데일 스터디 노트의 "책 소개"에서 고른 문장 + 번역 (책마다 한 번) ---------- */
+export interface BgAi { pts: Pt[]; none?: boolean }
+const introCache = new Map<number, Promise<string>>();
+function bookIntro(book: number): Promise<string> {
+  let p = introCache.get(book);
+  if (!p) {
+    p = fetch(`https://bible.helloao.org/api/c/tyndale/${USFM[book]}/1.json`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => String(j?.book?.introduction || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim())
+      .catch(() => '');
+    p.then(t => { if (!t) introCache.delete(book); });
+    introCache.set(book, p);
+  }
+  return p;
 }
-export function askBackground(data: BibleData, book: number, chapter: number, heads: [number, string][], signal?: AbortSignal) {
-  const ch = data[book][chapter - 1];
-  const per = ch.length > 60 ? 45 : 110;
-  const prev = chapter > 1 ? data[book][chapter - 2] : null;
-  return ask<BgAi>({
-    step: 'background', q: `${short(book)} ${chapter}`,
-    book: short(book), chapter,
-    heads,
-    prev: prev ? `${chapter - 1}장 마지막: ${prev.slice(-3).join(' ').slice(0, 300)}` : '',
-    text: ch.map((t, i) => `${i + 1} ${t.slice(0, per)}`).join('\n').slice(0, 8000),
+export async function askBackground(book: number, signal?: AbortSignal): Promise<BgAi> {
+  if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
+  const intro = await bookIntro(book);
+  if (!intro) return { pts: [], none: true };
+  const r = await ask<{ items: Pt[] }>({
+    step: 'extract', q: `${BOOKS[book].name} 배경`, who: '틴데일 스터디 노트 (책 소개)', source: intro.slice(0, 7000),
+    focus: `${BOOKS[book].name}의 배경 — 기록된 시대와 상황, 장소, 저자와 받는 사람, 기록 목적, 핵심 주제`, n: '5~7', max: 7, ck: `b|${book}`,
   }, signal);
+  return { pts: r.items || [] };
 }
 
 /* ---------- ③ 관련 구절 (관주) ---------- */
@@ -476,13 +403,14 @@ export async function getXrefs(book: number, chapter: number, verse: number): Pr
   const d = await loadXref();
   const s = d[`${book}.${chapter}.${verse}`];
   if (!s) return [];
-  return s.split(' ').map(r => {
-    const [a, z] = r.split('-');
-    const [b, c, v] = a.split('.').map(Number);
-    let ec = c, ev = v;
-    if (z) { const p = z.split('.').map(Number); if (p.length === 2) { ec = p[0]; ev = p[1]; } else ev = p[0]; }
-    return { book: b, chapter: c, verse: v, endChapter: ec, endVerse: ev };
-  });
+  return s.split(' ').map(parseX);
+}
+function parseX(r: string): XRef {
+  const [a, z] = r.split('-');
+  const [b, c, v] = a.split('.').map(Number);
+  let ec = c, ev = v;
+  if (z) { const p = z.split('.').map(Number); if (p.length === 2) { ec = p[0]; ev = p[1]; } else ev = p[0]; }
+  return { book: b, chapter: c, verse: v, endChapter: ec, endVerse: ev };
 }
 export function xrefLabel(x: XRef) {
   const base = `${short(x.book)} ${x.chapter}:${x.verse}`;

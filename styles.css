@@ -762,3 +762,30 @@ button.para-sum.fail { width: 100%; }
 .flow-body, .flow-title, .flow-gist { display: inline; margin: 0; }
 .flow-title { margin-right: 6px; }
 .flow-title::after { content: ' —'; font-weight: 400; color: var(--muted); }
+
+/* ================================================================
+   v1.9: 주석 원문에서 고른 문장 (한국어 번역 + 접힌 영어 원문)
+   ================================================================ */
+.pt-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.pt-list .pt { position: relative; padding-left: 0.9em; margin: 0 0 6px; line-height: var(--dlh, 1.45); }
+.pt-list .pt::before { content: '•'; position: absolute; left: 0; top: 0; opacity: 0.55; }
+.pt-list .pt:last-child { margin-bottom: 0; }
+.pt-who { font-weight: 700; }
+.pt-orig-btn {
+  display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px;
+  border: 1px solid var(--line, rgba(128,128,128,.35)); background: transparent; color: inherit;
+  font-size: 0.72em; line-height: 1.5; opacity: 0.6; vertical-align: 1px; cursor: pointer;
+}
+.pt-orig-btn.on { opacity: 1; background: rgba(128,128,128,.14); }
+.pt-en {
+  margin: 4px 0 2px; padding: 5px 8px; border-left: 3px solid rgba(128,128,128,.35);
+  font-size: 0.86em; line-height: 1.4; opacity: 0.85; text-align: left; word-break: normal; overflow-wrap: anywhere;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.pt-src { display: block; font-size: 0.82em; font-weight: 700; opacity: 0.7; margin-bottom: 2px; }
+.flow-title.solo::after { content: none !important; }
+.flow-title.solo { font-weight: 600; }
+.deep-link .link-text { font-size: 0.92em; opacity: 0.85; margin: 2px 0 4px; }
+.para-sum .pt-list .pt { padding-left: 0; }
+.para-sum .pt-list .pt::before { content: none; }
+.bg-card .pt-list { margin-top: 6px; }

@@ -3,12 +3,12 @@ import { Chev } from './ToolIcons';
 import { BibleData } from './bible';
 import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
-import { getHeads } from './headings';
 import { askBackground, BgAi, cacheGet, cacheSet, NS } from './study';
+import { PtList } from './Pt';
 
-/* ---------- ② 장 배경 카드 (장 주제를 누르면 펼쳐짐) ---------- */
-export function BackgroundCard({ data, book, chapter, onVerse }: { data: BibleData; book: number; chapter: number; onVerse: (v: number) => void }) {
-  const key = `${book}:${chapter}`;
+/* ---------- ② 배경 보기 (v1.9: 틴데일 스터디 노트의 책 소개에서 고른 문장 + 번역 · 책마다 한 번) ---------- */
+export function BackgroundCard({ book }: { data?: BibleData; book: number; chapter?: number; onVerse?: (v: number) => void }) {
+  const key = `${book}`;
   const [bg, setBg] = useState<BgAi | undefined>(() => cacheGet<BgAi>(NS.bg, key));
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [err, setErr] = useState('');
@@ -17,41 +17,24 @@ export function BackgroundCard({ data, book, chapter, onVerse }: { data: BibleDa
     if (bg && n === 0) return;
     const ctl = new AbortController();
     setState('loading');
-    askBackground(data, book, chapter, getHeads(book, chapter).map(h => [h.v, h.title]), ctl.signal)
-      .then(r => { setBg(r); cacheSet(NS.bg, key, r, 300); setState('idle'); })
+    askBackground(book, ctl.signal)
+      .then(r => { setBg(r); if (r.pts.length || r.none) cacheSet(NS.bg, key, r); setState('idle'); })
       .catch(e => { if (!ctl.signal.aborted) { setErr((e as Error).message); setState('error'); } });
     return () => ctl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n]);
+  }, [n, book]);
 
-  const max = data[book][chapter - 1].length;
   return (
     <div className="bg-card">
-      {state === 'loading' && !bg && <div className="busy" style={{ padding: '6px 0' }}><div className="spinner small" /> 이 장의 배경을 정리하는 중… (10~20초)</div>}
+      {state === 'loading' && !bg && <div className="busy" style={{ padding: '6px 0' }}><div className="spinner small" /> {BOOKS[book].name}의 배경을 찾아 번역하는 중… (10~30초)</div>}
       {state === 'error' && !bg && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></div>}
       {bg && (
         <>
-          {bg.summary && <p className="bg-sum">{bg.summary}</p>}
-          <dl className="bg-grid">
-            {bg.era && <><dt>🕰️ 시대</dt><dd>{bg.era}</dd></>}
-            {bg.place && <><dt>📍 장소</dt><dd>{bg.place}</dd></>}
-            {bg.people && <><dt>👥 인물</dt><dd>{bg.people}</dd></>}
-            {bg.flow && <><dt>🔗 흐름</dt><dd>{bg.flow}</dd></>}
-          </dl>
-          {bg.key?.filter(k => k.v >= 1 && k.v <= max).length > 0 && (
-            <div className="bg-keys">
-              <div className="bg-keys-h">⭐ 핵심 구절</div>
-              {bg.key.filter(k => k.v >= 1 && k.v <= max).map((k, i) => (
-                <button key={i} className="bg-key" onClick={() => onVerse(k.v)}>
-                  <b>{k.v}절</b> {data[book][chapter - 1][k.v - 1].slice(0, 60)}{data[book][chapter - 1][k.v - 1].length > 60 ? '…' : ''}
-                  {k.why && <span className="why">{k.why}</span>}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="bg-keys-h">📜 {BOOKS[book].name}의 배경</div>
+          {bg.pts.length > 0 ? <PtList pts={bg.pts} /> : <p className="desc">이 책의 배경 자료를 찾지 못했습니다.</p>}
           <div className="ai-foot">
-            <span className="muted small">AI · 참고용</span>
-            {state === 'loading' ? <span className="muted">다시 쓰는 중…</span> : <button onClick={() => setN(x => x + 1)}>↻ 다시 만들기</button>}
+            <span className="muted small">틴데일 스터디 노트 (CC BY-SA 4.0) · 원문 번역</span>
+            {state === 'loading' ? <span className="muted">다시 받는 중…</span> : <button onClick={() => setN(x => x + 1)}>↻ 다시</button>}
           </div>
         </>
       )}

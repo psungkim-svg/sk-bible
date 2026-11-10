@@ -11,7 +11,9 @@ import BookPicker from './BookPicker';
 import ToolIcons, { Chev, setAuto, useAuto } from './ToolIcons';
 import StudyView from './StudyView';
 import { BackgroundCard, BookIntro } from './ChapterInfo';
-import { ensureTopic, getHeads, Head, ParaSum, TopicState, useTopic } from './headings';
+import { getHeads, Head } from './headings';
+import { ensureParas, ParaPt, ParaState, useParas } from './paras';
+import { PtLine } from './Pt';
 
 interface Props { index: number; data: BibleData; active: boolean; }
 
@@ -38,7 +40,7 @@ export default function Reader({ index, data, active }: Props) {
   useEffect(() => { setBgOpen(false); }, [book, chapter]);
   /* 📘 장 깊은 해설 */
   const [chapOpen, setChapOpen] = useState(false);
-  // 장 맨 위: (1장이면) 책 소개 + 장 주제를 누르면 펼쳐지는 배경 카드
+  // 장 맨 위: (1장이면) 책 소개 + "📜 배경"을 누르면 펼쳐지는 배경 카드
   const topSlot = useMemo<ReactNode>(() => (
     <>
       <div className="chap-tools">
@@ -48,11 +50,11 @@ export default function Reader({ index, data, active }: Props) {
       {bgOpen && <BackgroundCard data={data} book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
     </>
   ), [data, book, chapter, bgOpen, index]);
-  const topic = useTopic(book, chapter);
-  // 장 주제 (+ 📝 단락 요약): 처음 여는 장이면 AI에게 요청 (인터넷이 될 때). 소제목은 앱 안에 들어 있음
+  const paras = useParas(book, chapter);
+  // 📝 단락 요약: 틴데일 단락 노트가 있는 장이면 원문 문장을 골라 번역 (처음 한 번, 인터넷이 될 때)
   useEffect(() => {
-    if (active && (settings.showTopic || settings.paraSum)) ensureTopic(data, book, chapter, false, settings.paraSum);
-  }, [active, settings.showTopic, settings.paraSum, data, book, chapter]);
+    if (active && settings.paraSum) ensureParas(book, chapter);
+  }, [active, settings.paraSum, book, chapter]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -339,7 +341,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
-            topic={topic} onRetryTopic={() => ensureTopic(data, book, chapter, true, settings.paraSum)} paraSum={settings.paraSum} topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            paras={paras} onRetryParas={() => ensureParas(book, chapter, true)} paraSum={settings.paraSum} topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -439,8 +441,8 @@ interface BodyProps {
   selected?: number[];
   flashV?: number;
   limit?: number;
-  topic?: TopicState;
-  onRetryTopic?: () => void;
+  paras?: ParaState;
+  onRetryParas?: () => void;
   topSlot?: ReactNode;
   bgOpen?: boolean;
   onTopicClick?: () => void;
@@ -457,28 +459,23 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topic, onRetryTopic, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, paraSum, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, paras, onRetryParas, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, paraSum, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
   const headAt = new Map<number, Head[]>();
   if (showHeadings) for (const hd of getHeads(book, chapter)) headAt.set(hd.v, [...(headAt.get(hd.v) ?? []), hd]);
-  const sumAt = new Map<number, ParaSum>();
-  if (paraSum && topic?.paras) for (const p of topic.paras) sumAt.set(p.v, p);
+  const sumAt = new Map<number, ParaPt>();
+  if (paraSum && paras?.paras) for (const p of paras.paras) sumAt.set(p.v, p);
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
-      {showTopic && topic?.status === 'ready' && (onTopicClick
-        ? <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{topic.topic}<span className="topic-more">배경 보기 <Chev open={!!bgOpen} /></span></button>
-        : <div className="chap-topic">{topic.topic}</div>)}
-      {showTopic && topic?.status === 'loading' && <div className="chap-topic pending">{paraSum ? '장 주제와 단락 요약을 만드는 중…' : '장 주제를 만드는 중…'}</div>}
-      {showTopic && topic?.status === 'fail' && onRetryTopic && (
-        <button className="chap-topic fail" onClick={onRetryTopic}>장 주제를 못 만들었어요 ({topic.error}) · 눌러서 다시 시도</button>
+      {showTopic && onTopicClick && (
+        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>📜 {BOOKS[book].name}의 배경<span className="topic-more">배경 보기 <Chev open={!!bgOpen} /></span></button>
       )}
-      {paraSum && topic?.status === 'ready' && !topic.paras && topic.parasPending && <div className="para-sum pending">📝 단락 요약을 만드는 중… (10~30초)</div>}
-      {paraSum && !topic?.paras && topic?.parasError && onRetryTopic && (topic.status === 'ready' || !showTopic) && (
-        <button className="para-sum fail" onClick={onRetryTopic}>📝 단락 요약을 못 만들었어요 · 눌러서 다시 시도</button>
+      {paraSum && paras?.status === 'loading' && <div className="para-sum pending">📝 단락 요약(틴데일 노트)을 번역하는 중… (10~30초)</div>}
+      {paraSum && paras?.status === 'fail' && onRetryParas && (
+        <button className="para-sum fail" onClick={onRetryParas}>📝 단락 요약을 못 받았어요 ({paras.error}) · 눌러서 다시 시도</button>
       )}
-      {paraSum && !showTopic && topic?.status === 'loading' && <div className="para-sum pending">📝 단락 요약을 만드는 중… (10~30초)</div>}
       {topSlot}
       <div className="verses">
         {verses.map((t, i) => {
@@ -491,7 +488,7 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
             {head?.map((hd, j) => (
               <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
             ))}
-            {sumAt.get(v) && <div className="para-sum">{sumAt.get(v)!.sum}</div>}
+            {sumAt.get(v) && <div className="para-sum"><ul className="pt-list"><PtLine en={sumAt.get(v)!.en} ko={sumAt.get(v)!.ko} /></ul></div>}
             <p
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
@@ -514,8 +511,8 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
 
 /** 옆에서 따라 들어오는 장 (소제목도 함께) */
 function GhostBody(p: { data: BibleData; book: number; chapter: number; highlights: Record<string, HlColor>; showHeadings: boolean; showTopic: boolean; paraSum: boolean }) {
-  const topic = useTopic(p.book, p.chapter);
-  return <ChapterBody {...p} topic={topic} limit={60} />;
+  const paras = useParas(p.book, p.chapter);
+  return <ChapterBody {...p} paras={paras} limit={60} />;
 }
 
 function Ico({ d }: { d: string }) {

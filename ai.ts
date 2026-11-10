@@ -2,7 +2,7 @@
    AI로 문장 찾기 (인터넷 필요)
    1) 폰 안의 검색으로 비슷한 구절 후보를 뽑고
    2) AI가 질문(음성 입력 오타 포함)을 이해해 구절을 고르고
-   3) 실제 개역개정 본문을 확인한 뒤 설명을 씁니다.
+   3) 실제 개역개정 본문을 확인해 그 구절만 보여 줍니다. (v1.9: AI 설명 글은 쓰지 않음)
    AI는 Cloudflare Workers AI (worker.js) 를 사용합니다.
    ================================================================ */
 import { BibleData, parseRef, refLabel } from './bible';
@@ -63,7 +63,7 @@ export async function askAi(data: BibleData, q: string, onStage: (s: string) => 
   if (corrected !== q) searchSentence(data, corrected, 'all', 4).forEach(add);
   local.slice(0, 4).forEach(add);
 
-  onStage('설명을 쓰는 중…');
+  onStage('맞는 구절을 고르는 중…');
   const ans = await call('explain', {
     q, corrected,
     verses: pool.map(v => ({ ref: label(v), text: v.text })),

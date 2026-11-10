@@ -209,7 +209,7 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
         {/* ----- AI 설명 ----- */}
         {ai && (
           <div className="ai-card">
-            <div className="ai-head"><span className="ai-badge">AI</span> 성경 도우미</div>
+            <div className="ai-head"><span className="ai-badge">AI</span> 구절 찾기</div>
             {ai.stage && <div className="busy" style={{ padding: '6px 0' }}><div className="spinner small" /> {ai.stage}</div>}
             {ai.error && <div className="ai-err">⚠️ {ai.error}</div>}
             {ai.answer && (() => {
@@ -219,6 +219,7 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
                   {a.corrected && a.corrected !== sQuery && <div className="ai-corrected">이렇게 이해했습니다: “{a.corrected}”</div>}
                   {a.intro && <p className="ai-intro">{a.intro}</p>}
                   {a.interpretation && <p className="ai-interp">{a.interpretation}</p>}
+                  {a.matches.length === 0 && <p className="desc">질문에 맞는 구절을 찾지 못했습니다. 다른 말로 다시 물어 보세요.</p>}
                   {a.matches.length > 0 && (
                     <>
                       <div className="ai-sec">📖 해당 성경 구절 (개역개정)</div>

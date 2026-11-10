@@ -52,12 +52,13 @@ export interface Settings {
   aiSearch: boolean;          // 문장 찾기에 AI 설명 사용
   wrapMode: 'char' | 'word';  // 줄바꿈: 글자 단위(꽉 차게) / 낱말 단위
   showHeadings: boolean;      // 단락 소제목
-  showTopic: boolean;         // 장 주제
+  showTopic: boolean;         // 장 맨 위 "📜 배경 보기" 버튼 (v1.9: AI 장 주제 대신)
   menuFontSize: number;       // 메뉴·버튼·제목줄 글씨
   descFontSize: number;       // 설명 글씨 (AI 해설·소개·낱말 풀이 등)
   titleFontSize: number;      // 본문 위 성경 제목 (예: 전도서 8장)
   descLineHeight: number;     // 설명(해설·주석 등) 줄 간격
-  paraSum: boolean;           // 📝 단락 요약 (AI)
+  paraSum: boolean;           // 📝 단락 요약 (v1.9: 틴데일 단락 노트 번역)
+  showOrig: boolean;          // 해설의 영어 원문을 늘 펼쳐 보기
   scrollSpeed: number;        // ⏬ 자동 스크롤 속도 1~10
 }
 
@@ -124,6 +125,7 @@ export const DEFAULT_SETTINGS: Settings = {
   descLineHeight: 1.45,
   paraSum: true,
   scrollSpeed: 4,
+  showOrig: false,
 };
 
 const KEY = 'sk-bible-v1';

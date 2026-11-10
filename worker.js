@@ -1,7 +1,9 @@
 /* ================================================================
    SK-성경 서버 (Cloudflare Worker)
    - 앱 화면/파일: 그대로 전달 (dist 폴더)
-   - /api/ask : "문장으로 찾기" AI 설명 (Cloudflare Workers AI, 무료 사용량 안에서)
+   - /api/ask : AI (Cloudflare Workers AI, 무료 사용량 안에서)
+   - v1.9: 해설은 주석 원문에서 문장을 골라 번역만 (서버가 원문에 있는지 확인)
+   - DB(D1)가 연결되어 있으면 한 번 만든 해설을 모두가 함께 씀
    ================================================================ */
 
 // 위에서부터 차례로 시도합니다 (첫 번째가 안 되면 두 번째)
@@ -21,19 +23,13 @@ const FIND_PROMPT = `당신은 한국어 성경(개역개정) 구절 찾기 도�
 {"corrected":"바르게 고친 질문","refs":["겔 14:14","겔 14:20"]}
 - refs: 가장 알맞은 순서로 1~6개, "책이름 장:절" 형식 (예: "요한복음 3:16", "시 23:1", "겔 14:14-20")`;
 
-const EXPLAIN_PROMPT = `당신은 한국어 성경(개역개정) 해설 도우미입니다.
+const EXPLAIN_PROMPT = `Reasoning: low
+당신은 한국어 성경(개역개정) 구절 찾기 도우미입니다.
 사용자는 휴대폰 음성 입력으로 질문해서 오타가 있을 수 있습니다.
-아래 "확인된 구절"은 개역개정 실제 본문입니다. 이 중에서 질문에 해당하는 구절을 골라 설명하세요.
+아래 "확인된 구절"은 개역개정 실제 본문입니다. 이 중에서 질문이 가리키는 구절만 고르세요. 설명은 쓰지 않습니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"matches":["에스겔 14:14","에스겔 14:20"],
- "intro":"질문하신 내용은 구약 성경 에스겔 14장 14절과 20절 말씀입니다.",
- "interpretation":"질문에서 '노화와 모세'라고 표현하신 부분은 성경의 대표적인 의인인 노아, 다니엘, 욥을 뜻하며, ... (질문의 표현이 무엇을 뜻하는지와 구절의 뜻을 2~3문장으로)",
- "points":[{"title":"구원의 개인성","body":"..."},{"title":"심판의 엄중함","body":"..."}]}
-규칙:
-- matches 에는 "확인된 구절" 목록에 있는 구절만, 관련이 큰 순서로 1~4개 넣습니다.
-- 맞는 구절이 없으면 matches 는 [] 로 하고, intro 에 "정확히 일치하는 구절을 찾지 못했습니다"라고 쓴 뒤 다시 물어볼 방법을 짧게 안내합니다.
-- points 는 "구절의 핵심 의미" 2~3개, 각 body 는 1~3문장.
-- 존댓말(~입니다)로 쓰고, 성경 본문과 일반적인 해석에 없는 내용은 지어내지 마세요.`;
+{"matches":["에스겔 14:14","에스겔 14:20"]}
+규칙: matches 에는 "확인된 구절" 목록에 있는 구절만, 관련이 큰 순서로 1~4개. 맞는 구절이 없으면 [].`;
 
 const TOPIC_PROMPT = `당신은 한국어 성경(개역개정) 편집자입니다.
 주어진 장 전체의 주제를 한국어 한 문장(40자 이내)으로 쓰세요.
@@ -53,31 +49,34 @@ const TOPIC_PARA_PROMPT = `Reasoning: low
 - topic: 그 장의 핵심 내용이 한눈에 들어오게, 개역개정 낱말을 살려 씁니다. 예) 마태복음 5장 → "산상수훈: 천국 백성의 복과 더 나은 의"
 - paras: "단락 시작 절"이 주어지면 그 단락마다 정확히 하나씩, v에는 주어진 시작 절 번호를 그대로 씁니다.
   단락 시작 절이 "(없음)"이면 내용의 흐름에 따라 2~6단락으로 나누고 v에 각 단락의 시작 절을 씁니다 (첫 단락은 1절).
-- sum: 그 단락에서 실제로 일어나는 일·말하는 내용을 3~4문장(120~220자)으로 요약합니다. 누가, 무엇을, 왜, 그래서 어떻게 되는지가 드러나게. 단락이 8개보다 많으면 2~3문장으로 짧게.
+- sum: 그 단락에서 실제로 일어나는 일·말하는 내용을 1~2문장(50~100자)으로 핵심만 간추립니다. 누가, 무엇을 하는지가 드러나게. 단락이 8개보다 많으면 한 문장(60자 이내)으로.
+- 간결하게: 핵심만 짧게, 군더더기 없이.
 - 내용 요약만 씁니다. 교훈·적용·기도·"우리도 ~해야 합니다" 같은 말은 절대 쓰지 마세요.
 - 존댓말(~합니다)로, 한국어 맞춤법과 띄어쓰기를 지키세요. 본문에 없는 내용은 지어내지 마세요.`;
 
 const VERSE_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 뻔한 설교 요약이 아니라 "이 구절이 정확히 무슨 뜻이고, 왜 그렇게 읽는지"를 깊고 구체적으로 알고 싶어 합니다.
 아래에 개역개정 구절, 앞뒤 본문, 그리고 고전 주석들의 영어 원문 발췌가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
- "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열",
- "commentators":[{"who":"주석 이름 (주어진 이름 그대로)","point":"그 주석이 이 구절에서 실제로 말하는 구체적 논점과 그 근거 4~8문장"}],
- "questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 3~7문장"}],
- "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 1~3문장"}]}],
- "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
+{"summary":"이 구절이 실제로 말하는 내용을 핵심만 1~2문장 (누가, 누구에게, 무엇을)",
+ "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 가운데 가장 중요한 것만 1~3문장. 꼭 필요한 것이 없으면 빈 문자열",
+ "commentators":[{"who":"주석 이름 (주어진 이름 그대로)","point":"그 주석이 이 구절에서 실제로 말하는 핵심 논점과 근거 2~4문장"}],
+ "questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 핵심만 담은 답 2~3문장"}],
+ "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 한 문장"}]}],
+ "links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 한 문장"}]}
 규칙:
 - 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
 - 어느 구절에나 할 수 있는 일반론은 쓰지 마세요. 이 구절에만 해당하는 구체적인 내용(낱말, 문법, 역사적 사실, 앞뒤 흐름, 다른 구절과의 관계)을 씁니다.
 - commentators가 이 해설에서 가장 중요합니다. 주어진 주석 가운데 이 구절에 대해 의미 있는 말이 있는 것은 모두 (보통 4~7개) 다루세요. 각 주석이 이 구절에 대해 무엇을 주장하고 어떤 근거(원어 낱말, 문법, 다른 성경 구절, 역사적 사실, 논리)를 드는지 발췌 내용을 충실히 살려, 주석마다 서로 다른 특색이 드러나게 씁니다. 여러 주석이 같은 말을 하면 그 공통점을 밝히고 각자 더한 점을 쓰세요. 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 주석 자료가 없으면 빈 배열.
 - 영어 주석은 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
-- questions 3~5개. debates는 실제로 견해가 갈리는 곳만 0~3개 (각 2~3개 견해를 공정하게). links 3~6개.
+- questions 2~3개. debates는 실제로 견해가 갈리는 곳만 0~2개 (각 2~3개 견해를 공정하게). links 3~5개.
 - '다른 번역'(새번역·영어 BSB)이 주어지면, 개역개정과 뜻이 달라 보이는 곳이 있을 때 questions나 summary에서 그 차이와 이유를 설명하세요.
+- 간결하게: 핵심 요점만 짧게, 서론·되풀이·군더더기 없이 씁니다.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
 
 /* ---- v1.6.4: 깊은 해설을 여러 요청으로 나눠 동시에 (빨라짐) ---- */
 const DEEP_ROLE = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 뻔한 설교 요약이 아니라 "이 구절이 정확히 무슨 뜻이고, 왜 그렇게 읽는지"를 깊고 구체적으로 알고 싶어 합니다.`;
-const DEEP_RULES = `- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
+const DEEP_RULES = `- 간결하게: 핵심 요점만 짧게 씁니다. 서론, 같은 말 되풀이, 꾸밈말, "~라고 할 수 있습니다" 같은 군더더기는 빼고, 한 문장에 한 가지만 담습니다.
+- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
 - 어느 구절에나 할 수 있는 일반론은 쓰지 마세요. 이 구절에만 해당하는 구체적인 내용(낱말, 문법, 역사적 사실, 앞뒤 흐름, 다른 구절과의 관계)을 씁니다.
 - 영어 자료는 자연스러운 한국어로 옮기고, 성경 인용은 개역개정 표현을 따르세요. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
@@ -86,8 +85,8 @@ const VERSE_CORE_PROMPT = `Reasoning: low
 ${DEEP_ROLE}
 아래에 개역개정 구절과 앞뒤 본문이 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"summary":"이 구절이 실제로 말하는 내용을 구체적으로 2~4문장 (누가, 누구에게, 무엇을, 어떤 흐름에서)",
- "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 등 2~5문장. 꼭 필요한 것이 없으면 빈 문자열"}
+{"summary":"이 구절이 실제로 말하는 내용을 핵심만 1~2문장 (누가, 누구에게, 무엇을)",
+ "background":"이 구절을 이해하는 데 꼭 필요한 구체적 사실 — 인물·장소·관습·제도·사건·연대 가운데 가장 중요한 것만 1~3문장. 꼭 필요한 것이 없으면 빈 문자열"}
 규칙:
 ${DEEP_RULES}`;
 
@@ -95,19 +94,19 @@ const VERSE_LINKS_PROMPT = `Reasoning: low
 ${DEEP_ROLE}
 아래에 개역개정 구절과 앞뒤 본문이 주어집니다. 이 구절과 깊이 이어지는 다른 성경 구절을 고르세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 1~2문장"}]}
+{"links":[{"ref":"성경 구절 (예: 민 21:8-9)","why":"이 구절과 어떻게 이어지는지 — 구약 배경, 인용, 같은 낱말의 다른 용례, 예언과 성취 등 한 문장"}]}
 규칙:
 ${DEEP_RULES}
-- links 3~6개.`;
+- links 3~5개.`;
 
 const VERSE_QA_PROMPT = `${DEEP_ROLE}
 아래에 개역개정 구절, 다른 번역(새번역·영어 BSB), 앞뒤 본문, 고전 주석들의 영어 원문 발췌가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 3~6문장"}],
- "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 1~3문장"}]}]}
+{"questions":[{"q":"이 구절을 꼼꼼히 읽는 사람이 실제로 품을 만한 궁금증","a":"본문·다른 성경 구절·주석을 근거로 든 핵심만 담은 답 2~3문장"}],
+ "debates":[{"issue":"해석이 갈리는 지점","views":[{"view":"견해 내용","who":"주로 누구의 견해인지 (주석 이름, 또는 '일부 학자')","why":"그 근거 한 문장"}]}]}
 규칙:
 ${DEEP_RULES}
-- questions 3~5개. debates는 실제로 견해가 갈리는 곳만 0~3개 (각 2~3개 견해를 공정하게).
+- questions 2~3개. 가장 중요한 궁금증만. debates는 실제로 견해가 갈리는 곳만 0~2개 (각 2~3개 견해를 공정하게).
 - 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다.
 - 다른 번역이 개역개정과 뜻이 달라 보이는 곳이 있으면, 그 차이와 이유를 questions에서 설명하세요.`;
 
@@ -116,7 +115,7 @@ ${DEEP_ROLE}
 아래에 개역개정 구절과, 고전 주석 하나의 영어 원문 발췌가 주어집니다.
 이 주석이 이 구절에 대해 실제로 말하는 내용을 한국어로 정리하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"point":"이 주석이 이 구절에서 주장하는 구체적 논점과 그 근거(원어 낱말, 문법, 다른 성경 구절, 역사적 사실, 논리) 4~8문장. 발췌 내용을 충실히 살려 이 주석만의 특색이 드러나게"}
+{"point":"이 주석이 이 구절에서 주장하는 구체적 논점과 그 근거(원어 낱말, 문법, 다른 성경 구절, 역사적 사실, 논리) 2~4문장. 이 주석만의 특색이 드러나는 핵심만"}
 규칙:
 ${DEEP_RULES}
 - 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다.
@@ -126,22 +125,24 @@ const VERSE_EXTRA_PROMPT = `Reasoning: low
 당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도입니다.
 아래에 개역개정 구절, 앞뒤 본문, 그 책의 소개(주제·구조)가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"bookflow":"이 구절이 그 책 전체의 구조와 주제 안에서 어떤 자리에 있고 어떤 역할을 하는지, 앞뒤 단락·책의 목적과 어떻게 이어지는지 3~5문장",
- "modern":[{"who":"현대 학자 이름 (예: D. A. 카슨)","point":"그 학자가 이 구절에 대해 펼친 것으로 잘 알려진 해석 2~4문장"}]}
+{"bookflow":"이 구절이 그 책 전체의 구조와 주제 안에서 어떤 자리에 있고 어떤 역할을 하는지, 앞뒤 단락·책의 목적과 어떻게 이어지는지 핵심만 1~2문장",
+ "modern":[{"who":"현대 학자 이름 (예: D. A. 카슨)","point":"그 학자가 이 구절에 대해 펼친 것으로 잘 알려진 해석의 핵심 1~2문장"}]}
 규칙:
 - bookflow: 주어진 '책 소개'(주제·구조)를 참고해, 이 구절이 책 전체에서 맡은 역할을 구체적으로 씁니다.
-- modern: 20세기 이후 이 책의 대표적인 현대 주석가·학자(예: D. A. 카슨, 더글러스 무, 크레이그 키너, 고든 웬함, 브루스 월키, 리처드 보컴, N. T. 라이트, 레온 모리스, F. F. 브루스 등 그 책을 실제로 연구한 학자) 가운데, 이 구절에 대한 견해를 확실히 아는 학자만 2~4명. 확실하지 않으면 학자 이름을 지어내지 말고 '현대 학자들 다수' 또는 '일부 현대 학자'로 쓰세요. 고전 주석 발췌와 같은 내용을 되풀이하지 말고 현대 연구(고고학, 고대 근동·제2성전기 유대교 배경, 원문 연구, 문학 구조)가 더해 준 통찰을 담으세요.
+- modern: 20세기 이후 이 책의 대표적인 현대 주석가·학자(예: D. A. 카슨, 더글러스 무, 크레이그 키너, 고든 웬함, 브루스 월키, 리처드 보컴, N. T. 라이트, 레온 모리스, F. F. 브루스 등 그 책을 실제로 연구한 학자) 가운데, 이 구절에 대한 견해를 확실히 아는 학자만 1~3명. 확실하지 않으면 학자 이름을 지어내지 말고 '현대 학자들 다수' 또는 '일부 현대 학자'로 쓰세요. 고전 주석 발췌와 같은 내용을 되풀이하지 말고 현대 연구(고고학, 고대 근동·제2성전기 유대교 배경, 원문 연구, 문학 구조)가 더해 준 통찰을 담으세요.
+- 간결하게: 핵심만 짧게, 군더더기 없이.
 - 적용·교훈·기도는 쓰지 마세요. 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
 
 const VERSE_ASK_PROMPT = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 성도가 특정 성경 구절에 대해 질문합니다.
 주어진 구절, 앞뒤 본문, 고전 주석 발췌, 앞서 나눈 내용을 참고해 질문에 깊고 구체적으로 답하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"answer":"질문에 대한 답 4~10문장. 근거(본문, 다른 성경 구절, 주석 이름)를 밝히며 구체적으로","refs":["근거로 든 성경 구절 (예: 롬 5:8)"]}
+{"answer":"질문에 대한 답 2~5문장. 핵심부터 간결하게, 근거(본문, 다른 성경 구절, 주석 이름)를 밝히며 구체적으로","refs":["근거로 든 성경 구절 (예: 롬 5:8)"]}
 규칙: 적용·교훈·기도는 쓰지 말고 질문에 대한 답만 합니다. 견해가 갈리면 여러 견해를 공정하게 소개합니다. 주석에 없는 말을 주석 이름으로 지어내지 말고, 모르는 것은 모른다고 하세요. 존댓말로 씁니다.`;
 
 /* ---- v1.7: 장 깊은 해설 (흐름 · 관찰 질문 · 어려운 곳 · 주석가별) ---- */
 const CHAP_ROLE = `당신은 신학대학원에서 성경 주해를 가르치는 교수입니다. 독자는 성경을 오래 읽어 온 성도이며, 성경 한 장을 깊고 구체적으로 이해하고 싶어 합니다.`;
-const CHAP_RULES = `- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게", "우리가 배울 점" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
+const CHAP_RULES = `- 간결하게: 핵심 요점만 짧게 씁니다. 서론, 같은 말 되풀이, 꾸밈말, "~라고 할 수 있습니다" 같은 군더더기는 빼고, 한 문장에 한 가지만 담습니다.
+- 적용, 교훈, 권면, 다짐, 기도, "우리는 ~해야 합니다", "오늘 우리에게", "우리가 배울 점" 같은 말은 절대 쓰지 마세요. 오직 본문의 뜻과 근거만 다룹니다.
 - 어느 장에나 할 수 있는 일반론은 쓰지 마세요. 이 장에만 해당하는 구체적인 내용(낱말, 흐름, 논리, 역사적 사실, 다른 구절과의 관계)을 씁니다.
 - 성경 인용은 개역개정 표현을 따르고, 절을 말할 때는 "3절", "5-8절"처럼 숫자로 밝히세요.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 사실은 지어내지 마세요.`;
@@ -150,10 +151,10 @@ const CHAP_FLOW_PROMPT = `Reasoning: low
 ${CHAP_ROLE}
 아래에 개역개정 한 장 전체, 단락 소제목, 앞 장 끝과 다음 장 처음, 그 책의 소개가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"flow":[{"from":1,"to":4,"title":"이 단락의 핵심을 담은 짧은 제목 (20자 이내)","gist":"이 단락이 말하는 것과 앞 단락에서 어떻게 이어지는지 2~3문장"}],
- "key":[{"v":28,"why":"이 절이 이 장을 여는 열쇠인 이유 2~3문장"}],
- "prev":"앞 장(또는 앞부분)에서 이 장으로 어떻게 넘어오는지 2~3문장",
- "next":"이 장이 다음 장(또는 뒷부분)으로 어떻게 이어지는지 2~3문장"}
+{"flow":[{"from":1,"to":4,"title":"이 단락의 핵심을 담은 짧은 제목 (20자 이내)","gist":"이 단락이 말하는 것과 앞 단락에서 어떻게 이어지는지 핵심만 1~2문장"}],
+ "key":[{"v":28,"why":"이 절이 이 장을 여는 열쇠인 이유 1~2문장"}],
+ "prev":"앞 장(또는 앞부분)에서 이 장으로 어떻게 넘어오는지 1~2문장",
+ "next":"이 장이 다음 장(또는 뒷부분)으로 어떻게 이어지는지 1~2문장"}
 규칙:
 ${CHAP_RULES}
 - flow: 장 전체를 빠짐없이 3~7단락으로 나눕니다 (from/to는 절 번호, 첫 단락은 1절부터, 마지막 단락은 마지막 절까지). 단락의 논리 관계(그러므로, 그러나, 이는 등)가 드러나게 씁니다.
@@ -162,12 +163,12 @@ ${CHAP_RULES}
 const CHAP_HARD_PROMPT = `${CHAP_ROLE}
 아래에 개역개정 한 장 전체, 단락 소제목, 고전 주석들의 영어 원문 발췌(일부)가 주어집니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"hard":[{"q":"이 장에서 성도들이 실제로 많이 막히거나 오해하는 곳 (절 번호와 함께)","a":"본문·다른 성경 구절·주석을 근거로 든 구체적인 답 5~8문장. 왜 어려운지(낱말·문화·논리 흐름·다른 구절과의 긴장)를 먼저 짚고, 견해가 갈리면 여러 견해를 근거와 함께 공정하게"}],
- "canon":[{"ref":"성경 구절 (예: 창 3:17-19)","why":"이 장이 그 구절과 어떻게 이어지는지 — 구약의 약속과 배경, 인용, 같은 주제의 발전, 성취 등을 구체적으로 2~3문장"}]}
+{"hard":[{"q":"이 장에서 성도들이 실제로 많이 막히거나 오해하는 곳 (절 번호와 함께)","a":"본문·다른 성경 구절·주석을 근거로 든 핵심만 담은 답 2~4문장. 왜 어려운지를 한마디로 짚고 답을 줍니다. 견해가 갈리면 주요 견해를 근거와 함께 짧게"}],
+ "canon":[{"ref":"성경 구절 (예: 창 3:17-19)","why":"이 장이 그 구절과 어떻게 이어지는지 — 구약의 약속과 배경, 인용, 같은 주제의 발전, 성취 등 핵심만 1~2문장"}]}
 규칙:
 ${CHAP_RULES}
-- hard 5~6개. 뻔한 질문은 빼고, 실제로 읽다가 막히는 곳을 장 전체에서 고르게 고릅니다.
-- canon 6~8개. 구약과 신약을 고르게, 창조–타락–언약–이스라엘–그리스도–교회–완성으로 이어지는 성경 전체 이야기 속에서 이 장의 자리가 드러나게, 성경 순서대로 놓습니다.
+- hard 4~5개. 뻔한 질문은 빼고, 실제로 읽다가 막히는 곳을 장 전체에서 고르게 고릅니다.
+- canon 5~6개. 구약과 신약을 고르게, 창조–타락–언약–이스라엘–그리스도–교회–완성으로 이어지는 성경 전체 이야기 속에서 이 장의 자리가 드러나게, 성경 순서대로 놓습니다.
 - 주석에 없는 말을 그 주석의 이름으로 지어내면 절대 안 됩니다. 영어 자료는 자연스러운 한국어로 옮기세요.`;
 
 const CHAP_COMM_PROMPT = `Reasoning: low
@@ -175,7 +176,7 @@ ${CHAP_ROLE}
 아래에 성경 한 장의 단락 소제목과, 고전 주석 하나가 이 장 전체에 대해 쓴 영어 원문 발췌(장 전체에서 고르게 뽑은 것)가 주어집니다.
 이 주석이 이 장을 어떻게 읽는지 한국어로 정리하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"point":"이 주석이 이 장 전체를 어떻게 보는지 — 장의 핵심 주제와 구조를 어떻게 이해하는지, 특히 강조하는 절과 그 이유, 이 주석만의 독특한 해석과 근거 6~10문장. 절 번호를 밝히며"}
+{"point":"이 주석이 이 장 전체를 어떻게 보는지 — 장의 핵심 주제와 구조를 어떻게 이해하는지, 특히 강조하는 절과 그 이유, 이 주석만의 독특한 해석과 근거를 핵심만 3~5문장. 절 번호를 밝히며"}
 규칙:
 ${CHAP_RULES}
 - 발췌에 없는 말을 이 주석의 이름으로 지어내면 절대 안 됩니다. 인물 이름은 한국 교회에서 쓰는 표기(칼빈, 매튜 헨리 등)로.
@@ -201,23 +202,23 @@ const LEX_PROMPT = `당신은 한국어 성경(개역개정) 교사입니다.
 2) 등장하는 인물·지명·민족·절기 등 고유명사를 설명하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"words":[{"w":"낱말 (본문에 나온 그대로)","mean":"쉬운 뜻 (짧게)","note":"필요하면 한두 문장 보충 (없으면 빈 문자열)"}],
- "names":[{"name":"이름","kind":"인물|지명|민족|절기|기타","desc":"누구/어디인지, 성경에서의 중요성 2~3문장","refs":["관련 대표 구절 (예: 창 12:1)"]}]}
+ "names":[{"name":"이름","kind":"인물|지명|민족|절기|기타","desc":"누구/어디인지, 성경에서의 중요성 1~2문장","refs":["관련 대표 구절 (예: 창 12:1)"]}]}
 규칙: 어려운 낱말은 0~8개, 고유명사는 본문에 나온 것만. 존댓말로 쓰고 지어내지 마세요.`;
 
 const TERM_PROMPT = `당신은 성경 사전 편집자입니다. 사용자가 묻는 성경 낱말·인물·지명·개념을 한국어로 쉽게 설명하세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"title":"표제어 (개역개정 표기)","kind":"인물|지명|낱말|개념|절기|기타","desc":"뜻과 성경에서의 의미·주요 사건 3~6문장","refs":["대표 구절 2~5개 (예: 창 12:1)"]}
+{"title":"표제어 (개역개정 표기)","kind":"인물|지명|낱말|개념|절기|기타","desc":"뜻과 성경에서의 의미·주요 사건 2~3문장","refs":["대표 구절 2~5개 (예: 창 12:1)"]}
 규칙: 존댓말로 쓰고, 성경에 없는 내용이나 확실하지 않은 내용은 지어내지 마세요.`;
 
 const BG_PROMPT = `당신은 성경 배경을 잘 아는 성경 교사입니다. 주어진 성경 한 장의 배경 카드를 한국어로 만드세요.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"summary":"이 장의 내용 요약 2~3문장",
+{"summary":"이 장의 내용 요약 1~2문장",
  "era":"시대 (예: 주전 1000년경 다윗 왕 시대 / 주후 30년경 예수님 공생애)",
  "place":"주요 장소",
  "people":"주요 등장인물 (쉼표로)",
- "flow":"앞 장과의 연결과 성경 전체 흐름 속 의미 1~2문장",
+ "flow":"앞 장과의 연결과 성경 전체 흐름 속 의미 한 문장",
  "key":[{"v":절번호,"why":"이 절이 중요한 이유 한 문장"}]}
-규칙: key 는 1~3개. 존댓말로 쓰고, 확실하지 않은 연대는 '~경' 또는 '전통적으로'라고 쓰세요. 지어내지 마세요.`;
+규칙: key 는 1~2개. 모든 항목을 짧고 간결하게. 존댓말로 쓰고, 확실하지 않은 연대는 '~경' 또는 '전통적으로'라고 쓰세요. 지어내지 마세요.`;
 
 const ORIGINAL_PROMPT = `당신은 성경 원어(히브리어·아람어·헬라어) 전문가이자 친절한 목회자입니다.
 주어진 구절의 원문 단어 분석 자료(STEPBible: 원어, 음역, 영어 직역, 스트롱 번호, 문법, 사전형)를 바탕으로
@@ -231,6 +232,151 @@ const ORIGINAL_PROMPT = `당신은 성경 원어(히브리어·아람어·헬라
 - pron: 원어를 한글로 읽는 소리 (예: 마카리오이, 베레쉬트, 엘로힘).
 - points: 2~4개. 핵심 단어의 깊은 뜻, 문법(시제·태·어순 등)이 주는 의미, 개역개정 번역에서 잘 드러나지 않는 뉘앙스 등.
 - 존댓말(~입니다)로 쓰고, 확실하지 않은 내용은 지어내지 마세요.`;
+
+/* ================================================================
+   v1.9: 근거 있는 해설 — AI는 "주석 원문에서 문장 고르기 + 번역"만 합니다.
+   고른 영어 문장이 원문에 정말 있는지 서버가 글자 단위로 확인하고, 없으면 버립니다.
+   ================================================================ */
+const TR_RULES = `번역 규칙 (가장 중요):
+- 고른 영어 문장을 빠짐없이, 보태지 말고, 요약하지 말고, 뜻 그대로 정확하고 자연스러운 한국어로 옮깁니다. 원문에 없는 설명·의견·적용을 덧붙이면 절대 안 됩니다.
+- 문장의 논리(그러므로, 그러나, ~때문에)와 강조, 조건, 단서를 그대로 살립니다. 모르는 낱말을 얼버무리지 말고 문맥에 맞게 정확히 옮깁니다.
+- 신학 용어는 한국 교회 표준 용어로: justification 칭의, justify 의롭다 하다, sanctification 성화, atonement 속죄, propitiation 화목제물, redemption 구속, reconciliation 화목, covenant 언약, grace 은혜, mercy 긍휼, righteousness 의, faith 믿음, repentance 회개, kingdom of heaven 천국, kingdom of God 하나님 나라, Messiah 메시아, the Law 율법, Gentiles 이방인, Pharisees 바리새인, scribes 서기관, Holy Spirit/Holy Ghost 성령, saints 성도, the elect 택하신 자, election 선택, providence 섭리, incarnation 성육신, resurrection 부활, gospel 복음, apostle 사도, disciples 제자들, flesh 육신, sacrifice 제사/제물, offering 예물, tabernacle 성막, temple 성전, priest 제사장, prophet 선지자, idolatry 우상 숭배, judgment 심판, salvation 구원, eternal life 영생, Second Coming 재림.
+- 성경 인용은 개역개정 표현을 따르고, 구절 표기는 한국어 약어로 바꿉니다 (Matt 5:3 → 마 5:3, Ps/Pss → 시, Isa → 사, Gen → 창, Exod → 출, Deut → 신, Rom → 롬, 1 Cor → 고전, Heb → 히, Rev → 계, cp. → 참조, see → 참조).
+- 인물·지명은 개역개정과 한국 교회 표기로 (Calvin 칼빈, Augustine 어거스틴, Chrysostom 크리소스톰, Jerome 제롬, Luther 루터, Moses 모세, Elijah 엘리야, Jerusalem 예루살렘, Judea 유대).
+- 문체는 평서문(~이다, ~한다)으로 원문의 어조를 살립니다. 한국어 맞춤법과 띄어쓰기를 지킵니다.`;
+
+const PICK_RULES = `문장 고르기 규칙:
+- en 에는 원문에 실제로 있는 문장(또는 한 문장 안의 연속된 부분)을 철자·문장부호까지 한 글자도 바꾸지 말고 그대로 복사합니다. 고치거나, 줄이거나, 여러 곳을 이어 붙이면 안 됩니다. 맨 앞의 절 번호(예: "5:3")는 빼도 됩니다.
+- 해석·설명·근거가 담긴 문장을 고릅니다. 성경 본문을 그대로 옮겨 적은 문장, 라틴어, 구절 번호만 늘어놓은 문장은 고르지 않습니다.
+- 자기 생각은 한 마디도 쓰지 않습니다. 원문에 없는 내용은 절대 만들어 내지 않습니다.`;
+
+const EXTRACT_PROMPT = `Reasoning: low
+당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다. 주어진 원문에서 중요한 문장을 골라 정확하게 번역하는 일만 합니다.
+할 일: '원문'에서 '찾을 내용'에 대해 이 자료가 말하는 가장 중요한 문장을, 서로 겹치지 않게 원문 순서대로, '고를 문장 수'만큼 고릅니다. 원문이 그 내용과 상관없으면 빈 배열.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"items":[{"en":"원문 문장 그대로","ko":"그 문장의 충실한 한국어 번역"}]}
+${PICK_RULES}
+${TR_RULES}`;
+
+const GQA_PROMPT = `Reasoning: low
+당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다. 주어진 주석 원문에 실제로 있는 문장만 골라 정확하게 번역합니다.
+아래에 성경 본문(개역개정)과 여러 주석의 원문 발췌가 [주석 이름]으로 나뉘어 주어집니다.
+1) qa: 이 본문을 읽는 성도가 실제로 품을 만한 궁금증(낱말의 뜻, 문화·역사 배경, 앞뒤 논리, 다른 구절과의 관계 등) 가운데, 주석 원문이 직접 답하고 있는 것만 고릅니다. q 는 한국어로 짧은 질문, quotes 는 그 답이 되는 주석 원문 문장(같은 주석에서 1~3개).
+2) debates: 주석들이 같은 곳을 서로 다르게 해석한다는 것이 원문에 분명히 드러날 때만 씁니다. views 는 서로 다른 주석에서 하나씩, 그 주석 원문의 문장. 그런 곳이 없으면 빈 배열 (억지로 만들지 마세요).
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"qa":[{"q":"질문","who":"주석 이름 (주어진 그대로)","quotes":[{"en":"원문 문장 그대로","ko":"충실한 번역"}]}],
+ "debates":[{"issue":"해석이 갈리는 지점 (짧게)","views":[{"who":"주석 이름","en":"원문 문장 그대로","ko":"충실한 번역"}]}]}
+규칙:
+- qa 는 '질문 수'만큼 (원문이 답하는 것이 그보다 적으면 적게). debates 0~2개.
+- 질문(q)과 쟁점(issue) 외에는 자기 말을 쓰지 않습니다.
+${PICK_RULES}
+${TR_RULES}`;
+
+const GASK_PROMPT = `Reasoning: low
+당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다. 성도의 질문에 자기 말로 답하지 않고, 주석 원문에서 그 질문에 직접 답하는 문장을 찾아 정확하게 번역합니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"quotes":[{"who":"주석 이름 (주어진 그대로)","en":"원문 문장 그대로","ko":"충실한 번역"}]}
+규칙:
+- 질문에 직접 답하는 문장만 1~5개. 답이 되는 문장이 없으면 {"quotes":[]} (억지로 고르지 마세요).
+${PICK_RULES}
+${TR_RULES}`;
+
+const PARAS_PROMPT = `Reasoning: low
+당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다.
+아래는 틴데일 스터디 노트(Tyndale Open Study Notes)에서 이 장의 단락들을 설명하는 노트들입니다. 노트마다 [v=절 번호]가 붙어 있습니다.
+각 노트에서 그 단락의 내용을 가장 잘 요약하는 문장 1~2개(이어진 문장)를 그대로 고르고 번역합니다.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"paras":[{"v":1,"en":"그 노트의 원문 문장 그대로","ko":"충실한 번역"}]}
+${PICK_RULES}
+${TR_RULES}`;
+
+/** 영어 비교용: 소문자 · 따옴표 통일 · 글자와 숫자만 */
+function normEn(s) {
+  return String(s ?? '').toLowerCase()
+    .replace(/[\u2018\u2019\u02bc`\u00b4]/g, "'").replace(/[\u201c\u201d]/g, '"')
+    .replace(/<[^>]+>/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+/** AI가 고른 문장이 원문에 그대로 있는지 */
+function inSrc(en, srcNorm) {
+  const n = normEn(en);
+  return n.length >= 20 && n.split(' ').length >= 4 && srcNorm.includes(n);
+}
+function verifyPts(list, src, max) {
+  const sn = normEn(src);
+  const seen = new Set();
+  const out = [];
+  for (const x of (Array.isArray(list) ? list : [])) {
+    const en = clip(x?.en, 1500).trim(), ko = clip(x?.ko, 2000).trim();
+    if (!en || !ko || !/[가-힣]/.test(ko) || !inSrc(en, sn)) continue;
+    const k = normEn(en);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ en, ko });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+/** 여러 주석 중 어느 원문에 있는지 (이름이 틀려도 실제로 있는 주석으로 바로잡음) */
+function srcList(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 6)
+    .map(s => ({ who: clip(s?.who, 40).trim(), text: clip(s?.text, 4000).trim() }))
+    .filter(s => s.who && s.text)
+    .map(s => ({ ...s, norm: normEn(s.text) }));
+}
+function whoHas(en, who, srcs) {
+  const named = srcs.find(s => s.who === who);
+  if (named && inSrc(en, named.norm)) return named.who;
+  const any = srcs.find(s => inSrc(en, s.norm));
+  return any ? any.who : '';
+}
+function srcBlock(srcs) { return srcs.map(s => `[${s.who}]\n${s.text}`).join('\n\n') || '(주석 자료 없음)'; }
+
+/* ---- 함께 쓰는 해설 저장소 (Cloudflare D1 · 무료) ----
+   wrangler.jsonc 에 DB 연결이 있을 때만 씁니다. 없으면 예전처럼 폰마다 저장. */
+const DAILY_NEW = 20;            // 폰 하나가 하루에 새로 AI를 부를 수 있는 횟수 (구절·장 해설 하나 ≈ 4번)
+const CACHE_VER = 'v190';
+let dbReady = false;
+async function dbOn(env) {
+  if (!env.DB) return false;
+  if (dbReady) return true;
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS ai (k TEXT PRIMARY KEY, v TEXT NOT NULL, t INTEGER)').run();
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS usage (d TEXT NOT NULL, dev TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (d, dev))').run();
+    dbReady = true;
+  } catch { return false; }
+  return true;
+}
+const today = () => new Date().toISOString().slice(0, 10);
+async function sharedGet(env, k) {
+  try { const r = await env.DB.prepare('SELECT v FROM ai WHERE k = ?').bind(k).first(); return r ? JSON.parse(r.v) : null; } catch { return null; }
+}
+async function sharedPut(env, k, v) {
+  try { await env.DB.prepare('INSERT OR REPLACE INTO ai (k, v, t) VALUES (?, ?, ?)').bind(k, JSON.stringify(v), Date.now()).run(); } catch { /* 무시 */ }
+}
+async function usedToday(env, dev) {
+  try { const r = await env.DB.prepare('SELECT n FROM usage WHERE d = ? AND dev = ?').bind(today(), dev).first(); return Number(r?.n) || 0; } catch { return 0; }
+}
+async function addUse(env, dev) {
+  try { await env.DB.prepare('INSERT INTO usage (d, dev, n) VALUES (?, ?, 1) ON CONFLICT(d, dev) DO UPDATE SET n = n + 1').bind(today(), dev).run(); } catch { /* 무시 */ }
+}
+
+/** 저장소에 있으면 바로, 없으면 AI → 확인된 결과만 저장 */
+async function grounded(env, request, key, run, keep, opt = {}) {
+  const has = await dbOn(env);
+  const k = key ? `${CACHE_VER}|${key}` : '';
+  if (has && k) {
+    const hit = await sharedGet(env, k);
+    if (hit) return json({ ...hit, shared: true });
+  }
+  const dev = clip(request.headers.get('x-sk-dev'), 40).replace(/[^\w-]/g, '');
+  if (has && dev && !opt.free && (await usedToday(env, dev)) >= DAILY_NEW) {
+    return json({ error: `오늘 이 폰에서 새로 만들 수 있는 해설을 다 썼습니다 (하루 구절·장 해설 약 ${Math.round(DAILY_NEW / 4)}개). 이미 만들어진 해설은 계속 볼 수 있고, 새 해설은 내일 다시 만들 수 있습니다.`, limit: true }, 429);
+  }
+  const out = await run();
+  if (has && dev && !opt.free) await addUse(env, dev);
+  if (has && k && keep(out)) await sharedPut(env, k, out);
+  return json(out);
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -306,6 +452,90 @@ async function handleAsk(request, env) {
   if (!q) return json({ error: '질문이 비어 있습니다' }, 400);
 
   try {
+    /* ---- v1.9 근거 있는 해설 ---- */
+    if (body.step === 'extract') {
+      const who = clip(body.who, 40).trim();
+      const src = clip(body.source, 7000);
+      const max = Math.min(8, Math.max(1, Number(body.max) || 4));
+      return grounded(env, request, `x|${clip(body.ck, 160)}`, async () => {
+        const ask = `찾을 내용: ${clip(body.focus, 300)}\n고를 문장 수: ${clip(body.n, 10) || '2~4'}개\n자료: ${who}\n\n원문:\n${src}`;
+        let out = await runLLM(env, EXTRACT_PROMPT, ask, { max_tokens: 6000 });
+        let items = verifyPts(out?.items, src, max);
+        // 골랐는데 원문과 한 글자라도 달라 모두 걸러졌으면 한 번만 다시 (원문 그대로 복사하라고 다시 일러 줌)
+        if (!items.length && Array.isArray(out?.items) && out.items.length) {
+          out = await runLLM(env, EXTRACT_PROMPT, ask + '\n\n(주의: 앞서 고른 문장이 원문과 글자가 달라 모두 버려졌습니다. en 에는 원문의 문장을 한 글자도 바꾸지 말고 그대로 복사하세요.)', { max_tokens: 6000 });
+          items = verifyPts(out?.items, src, max);
+        }
+        return { who, items };
+      }, r => r.items.length > 0);
+    }
+    if (body.step === 'gqa') {
+      const srcs = srcList(body.sources);
+      if (!srcs.length) return json({ qa: [], debates: [] });
+      return grounded(env, request, `q|${clip(body.ck, 160)}`, async () => {
+        const out = await runLLM(env, GQA_PROMPT,
+          `본문: ${q}\n${clip(body.text, 4000)}\n질문 수: ${clip(body.n, 10) || '2~3'}개\n\n주석 원문 발췌:\n${srcBlock(srcs)}`,
+          { max_tokens: 9000 });
+        const qa = (Array.isArray(out?.qa) ? out.qa : []).slice(0, 8).map(x => {
+          const pts = [];
+          let who = '';
+          for (const p of (Array.isArray(x?.quotes) ? x.quotes : []).slice(0, 4)) {
+            const w = whoHas(p?.en, clip(x?.who, 40).trim(), srcs);
+            const ko = clip(p?.ko, 2000).trim();
+            if (!w || !ko || !/[가-힣]/.test(ko) || (who && w !== who)) continue;
+            who = w;
+            pts.push({ en: clip(p.en, 1500).trim(), ko });
+          }
+          return { q: clip(x?.q, 200).trim(), who, pts };
+        }).filter(x => x.q && x.pts.length);
+        const debates = (Array.isArray(out?.debates) ? out.debates : []).slice(0, 3).map(d => {
+          const views = [];
+          for (const v of (Array.isArray(d?.views) ? d.views : []).slice(0, 4)) {
+            const w = whoHas(v?.en, clip(v?.who, 40).trim(), srcs);
+            const ko = clip(v?.ko, 2000).trim();
+            if (!w || !ko || !/[가-힣]/.test(ko) || views.some(x => x.who === w)) continue;
+            views.push({ who: w, en: clip(v.en, 1500).trim(), ko });
+          }
+          return { issue: clip(d?.issue, 200).trim(), views };
+        }).filter(d => d.issue && d.views.length >= 2);
+        return { qa, debates };
+      }, r => r.qa.length > 0 || r.debates.length > 0);
+    }
+    if (body.step === 'gask') {
+      const srcs = srcList(body.sources);
+      if (!srcs.length) return json({ quotes: [] });
+      return grounded(env, request, '', async () => {
+        const out = await runLLM(env, GASK_PROMPT,
+          `구절: ${clip(body.ref, 60)}\n${clip(body.text, 3000)}\n\n질문: ${q}\n\n주석 원문 발췌:\n${srcBlock(srcs)}`,
+          { max_tokens: 6000 });
+        const quotes = [];
+        for (const p of (Array.isArray(out?.quotes) ? out.quotes : []).slice(0, 6)) {
+          const w = whoHas(p?.en, clip(p?.who, 40).trim(), srcs);
+          const ko = clip(p?.ko, 2000).trim();
+          if (!w || !ko || !/[가-힣]/.test(ko) || quotes.some(x => normEn(x.en) === normEn(p.en))) continue;
+          quotes.push({ who: w, en: clip(p.en, 1500).trim(), ko });
+        }
+        return { quotes };
+      }, () => false);
+    }
+    if (body.step === 'paras') {
+      const notes = (Array.isArray(body.notes) ? body.notes : []).slice(0, 14)
+        .map(n => ({ v: Number(n?.v) || 0, text: clip(n?.text, 1500).trim() })).filter(n => n.v > 0 && n.text);
+      if (!notes.length) return json({ paras: [] });
+      return grounded(env, request, `p|${clip(body.ck, 160)}`, async () => {
+        const out = await runLLM(env, PARAS_PROMPT, `${q}\n\n${notes.map(n => `[v=${n.v}]\n${n.text}`).join('\n\n')}`, { max_tokens: 7000 });
+        const paras = [];
+        for (const p of (Array.isArray(out?.paras) ? out.paras : []).slice(0, 16)) {
+          const v = Number(p?.v) || 0;
+          const note = notes.find(n => n.v === v);
+          if (!note || paras.some(x => x.v === v)) continue;
+          const [pt] = verifyPts([p], note.text, 1);
+          if (pt) paras.push({ v, ...pt });
+        }
+        return { paras };
+      }, r => r.paras.length > 0, { free: true });
+    }
+
     if (body.step === 'topic') {
       const verses = (Array.isArray(body.verses) ? body.verses : []).slice(0, 200);
       const paras = !!body.paras;
@@ -517,17 +747,14 @@ async function handleAsk(request, env) {
         `원래 질문(음성 입력): ${q}\n고친 질문: ${corrected || q}\n\n확인된 구절:\n${verses || '(없음)'}`);
       return json({
         matches: (Array.isArray(out.matches) ? out.matches : []).slice(0, 5).map(r => clip(r, 40)),
-        intro: clip(out.intro, 600),
-        interpretation: clip(out.interpretation, 1500),
-        points: (Array.isArray(out.points) ? out.points : []).slice(0, 4)
-          .map(p => ({ title: clip(p?.title, 80), body: clip(p?.body, 800) })),
+        intro: '', interpretation: '', points: [],
       });
     }
     return json({ error: '알 수 없는 요청' }, 400);
   } catch (e) {
     const msg = String(e?.message || e);
     if (/neuron|quota|limit|4006|exceeded/i.test(msg)) {
-      return json({ error: '오늘 무료 AI 사용량을 다 썼습니다. 내일 다시 쓰거나, 아래의 폰 안 검색 결과를 보세요.' }, 429);
+      return json({ error: '오늘 무료 AI 사용량을 다 썼습니다. 이미 만들어진 해설은 계속 볼 수 있고, 새 해설은 내일 다시 만들 수 있습니다.' }, 429);
     }
     return json({ error: 'AI 답변 실패: ' + msg.slice(0, 200) }, 502);
   }
@@ -540,7 +767,7 @@ export default {
       if (request.method !== 'POST') return json({ error: 'POST only' }, 405);
       return handleAsk(request, env);
     }
-    if (url.pathname === '/api/health') return json({ ok: true, ai: !!env.AI });
+    if (url.pathname === '/api/health') return json({ ok: true, ai: !!env.AI, shared: await dbOn(env) });
     return env.ASSETS.fetch(request);
   },
 };
