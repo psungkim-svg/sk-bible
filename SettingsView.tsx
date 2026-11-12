@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import ToolIcons from './ToolIcons';
-import { clearAllParas } from './paras';
 import { cacheCount } from './aicache';
 import { APP_VERSION, applyUpdate, BUILD_TIME, CHANGELOG, fetchLatest, formatBuildTime } from './pwa';
 import { DEFAULT_SETTINGS, exportBackup, importBackup, setSettings, Settings, useStore } from './store';
@@ -127,7 +126,7 @@ export default function SettingsView({ active }: { active: boolean }) {
 
         <section className="set-box">
           <h2 className="set-title">💡 해설 · 설명</h2>
-          <p className="desc small">AI 해설, 주석, 관련 구절, 장 배경, 책 소개 같은 설명 글</p>
+          <p className="desc small">해설 · 배경 · 책 소개</p>
           <h3>글씨 크기</h3>
           <div className="slider-row">
             <span style={{ fontSize: 14 }}>가</span>
@@ -147,7 +146,7 @@ export default function SettingsView({ active }: { active: boolean }) {
 
         <section className="set-box">
           <h2 className="set-title">🔘 메뉴</h2>
-          <p className="desc small">버튼, 탭, 아래 페이지 버튼, 제목줄 글씨</p>
+          <p className="desc small">버튼 · 탭 · 제목줄</p>
           <h3>글씨 크기</h3>
           <div className="slider-row">
             <span style={{ fontSize: 14 }}>가</span>
@@ -173,11 +172,11 @@ export default function SettingsView({ active }: { active: boolean }) {
           <h3>읽기</h3>
           <Toggle label="읽는 동안 화면 꺼짐 방지" value={s.keepAwake} onChange={v => set('keepAwake', v)} />
           <Toggle label="좌우로 밀어서 장 넘기기" value={s.swipe} onChange={v => set('swipe', v)} />
-          <Toggle label="검색 결과가 없거나 긴 문장일 때 AI로 구절 찾기 (인터넷 필요)" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
-          <Toggle label="📜 장 맨 위에 &quot;배경 보기&quot; 버튼 (틴데일 책 소개 번역)" value={s.showTopic} onChange={v => set('showTopic', v)} />
-          <Toggle label="단락 소제목 보기 (개역개정)" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
-          <Toggle label="📝 단락 요약 보기 (틴데일 단락 노트 번역 · 노트가 있는 단락만)" value={s.paraSum} onChange={v => set('paraSum', v)} />
-          <Toggle label="해설의 영어 원문 늘 펼쳐 보기 (끄면 문장 끝 &quot;원문&quot;을 눌러서)" value={s.showOrig} onChange={v => set('showOrig', v)} />
+          <Toggle label="검색 결과가 없으면 AI로 찾기" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
+          <Toggle label="📜 장 맨 위 배경 보기 버튼" value={s.showTopic} onChange={v => set('showTopic', v)} />
+          <Toggle label="단락 소제목" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
+          <Toggle label="📖 장 맨 위 지명·낱말 풀이" value={s.showWords} onChange={v => set('showWords', v)} />
+          <Toggle label="해설 영어 원문 늘 펼치기" value={s.showOrig} onChange={v => set('showOrig', v)} />
           <div className="row"><span>페이지 개수 <span className="muted">(6개부터는 아래 페이지 버튼 줄을 옆으로 밀어서)</span></span></div>
           <div className="seg small page-count">
             {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <button key={n} className={s.pageCount === n ? 'on' : ''} onClick={() => set('pageCount', n)}>{n}</button>)}
@@ -225,9 +224,8 @@ export default function SettingsView({ active }: { active: boolean }) {
           <h3>기타</h3>
           <div className="btn-row">
             <button onClick={() => { if (confirm('보기 설정을 기본값으로 되돌릴까요? (북마크는 그대로입니다)')) setSettings(DEFAULT_SETTINGS); }}>설정 초기화</button>
-            <button onClick={() => { if (confirm('저장된 단락 요약을 지우고 다시 받을까요?')) { clearAllParas(); toast('지웠습니다. 장을 열면 다시 받습니다'); } }}>단락 요약 다시 받기</button>
           </div>
-          <p className="desc small">폰에 저장된 AI 결과: <b>{cacheCount().toLocaleString()}</b>개 (해설·요약 등 — 한 번 본 것은 인터넷·AI 없이 바로 다시 보입니다)</p>
+          <p className="desc small">폰에 저장된 AI 결과: <b>{cacheCount().toLocaleString()}</b>개 (인터넷 없이 다시 보임)</p>
         </section>
 
         <section>

@@ -3,8 +3,8 @@ import { BibleData } from './bible';
 import { BOOKS } from './books';
 import { getHeads } from './headings';
 import { goTo } from './store';
-import { chapterLinks, COMMENTARY_CREDIT, NS, runDeepChapter, XRef, xrefLabel, xrefText } from './study';
-import { Go, GroundedBody, useDeep, Waiting } from './StudyView';
+import { chapterLinks, COMMENTARY_SHORT, NS, runDeepChapter, XRef, xrefLabel, xrefText } from './study';
+import { EasySummary, Go, GroundedBody, useDeep, Waiting } from './StudyView';
 import { useBackClose } from './utils';
 
 /* ================================================================
@@ -46,6 +46,7 @@ export default function ChapterStudy({ data, book, chapter, page, onClose, onAft
       <div className="study-body">
         <div className="ai-card deep">
           <div className="ai-head">📘 {BOOKS[book].name} {chapter}{unit} 깊은 해설</div>
+          {ai && !busy && !prog && <EasySummary kind="c" ekey={`${book}.${chapter}`} label={`${BOOKS[book].name} ${chapter}${unit}`} ai={ai} />}
 
           {flow.length > 0 && (
             <><div className="ai-sec">🧭 이 장의 흐름 <span className="ai-note">개역개정 소제목</span></div>
@@ -65,14 +66,14 @@ export default function ChapterStudy({ data, book, chapter, page, onClose, onAft
 
           <ChapterLinks data={data} book={book} chapter={chapter} count={max} onGo={go} />
 
-          {ai && (failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부를 받지 못했습니다. 아래 "다시 해설"을 눌러 주세요.</div>}
+          {ai && (failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부 실패 · 아래 ↻ 다시 해설</div>}
           {ai && (
             <div className="ai-foot">
-              {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '끝난 부분부터 보여 드립니다'}</span> : <button onClick={again}>↻ 다시 해설</button>}
+              {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '받는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
             </div>
           )}
         </div>
-        <p className="desc small">주석에 실제로 있는 문장만 골라 번역해 보여 드립니다. 문장 끝 "원문"을 누르면 영어 원문을 볼 수 있습니다. 이어지는 구절은 OpenBible.info 관주 자료(CC BY)입니다.<br />{COMMENTARY_CREDIT}</p>
+        <p className="desc small src-line">{COMMENTARY_SHORT} · 관주: OpenBible.info</p>
       </div>
     </div>
   );
@@ -91,8 +92,8 @@ function ChapterLinks({ data, book, chapter, count, onGo }: { data: BibleData; b
   return (
     <>
       <div className="ai-sec">🌏 성경 전체 이야기 속에서 <span className="ai-note">관주 자료</span></div>
-      {!list && <Waiting text="이어지는 구절을 찾는 중…" />}
-      {list && list.length === 0 && <p className="desc">이 장과 이어지는 구절 자료가 없습니다.</p>}
+      {!list && <Waiting text="찾는 중…" />}
+      {list && list.length === 0 && <p className="desc">자료 없음</p>}
       {list?.map((x, i) => (
         <div key={i} className="deep-link">
           <button className="ref-link" onClick={() => onGo({ book: x.book, chapter: x.chapter, verse: x.verse })}>{xrefLabel(x)}</button>

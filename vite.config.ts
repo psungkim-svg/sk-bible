@@ -14,6 +14,7 @@ const ASSETS: Record<string, string> = {
   'data/nkrv.json': 'nkrv.json',
   'data/xref.json': 'xref.json',
   'data/geo.json': 'geo.json',     // 지도·인물 (Theographic CC BY-SA, Natural Earth)
+  'data/dict.json': 'dict.json',   // v1.10 지명(오늘날 이름)·단위·옛 말 사전 (앱 안에 · 인터넷 없이)
   'sw-extra.js': 'sw-extra.js',   // 서비스 워커 덧붙임 (업데이트 버튼)   // 관련 구절 (OpenBible.info, CC BY)
   'icons/icon-192.png': 'icon-192.png',
   'icons/icon-512.png': 'icon-512.png',

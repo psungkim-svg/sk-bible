@@ -680,9 +680,6 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 
 /* ================= v1.8 ================= */
 /* 📝 단락 요약 (소제목 아래 작은 상자) */
-.para-sum { margin: 2px 4px calc(var(--fs) * .5); padding: 7px 11px; border-radius: 9px; background: var(--bg2); color: var(--muted); font-size: calc(var(--desc) * .82); line-height: 1.55; word-break: keep-all; border-left: 3px solid var(--accent-soft); }
-.para-sum.pending { opacity: .7; }
-button.para-sum.fail { display: block; width: calc(100% - 8px); text-align: left; color: var(--accent); }
 
 /* ⏬ 자동 스크롤 막대 */
 .auto-bar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 30; display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--card); border: 1px solid var(--line); border-radius: 99px; box-shadow: 0 6px 24px rgba(0, 0, 0, .2); font-size: var(--menu); white-space: nowrap; animation: up .18s ease-out; }
@@ -724,12 +721,12 @@ button.para-sum.fail { display: block; width: calc(100% - 8px); text-align: left
 /* ================= v1.8.2: 해설 · 주석 · 설명 글을 좌우 꽉 차게 (스크롤 줄이기) ================= */
 /* ① 글자 단위 줄바꿈 + 양쪽 맞춤 (설정 → 줄바꿈 "낱말 단위"를 고르면 예전처럼) */
 .ai-card, .deep-box, .deep-qa, .deep-a, .deep-link, .flow-gist, .key-why, .ai-interp, .ai-intro, .ai-points li,
-.bg-card, .bi-body, .para-sum, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
+.bg-card, .bi-body, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
 .lex-row, .lex-note, .ai-verse .txt, .xref .txt, .hit-text, .card-text, .desc, .key-verse, .bg-key, .bi-key, .obs-a {
   word-break: normal; overflow-wrap: anywhere; text-align: justify;
 }
 [data-wrap="word"] :is(.ai-card, .deep-box, .deep-qa, .deep-a, .deep-link, .flow-gist, .key-why, .ai-interp, .ai-intro, .ai-points li,
-.bg-card, .bi-body, .para-sum, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
+.bg-card, .bi-body, .topic-card, .tc-verses p, .tips, .orig-kor, .wcard, .wmean, .wnote, .name-card,
 .lex-row, .lex-note, .ai-verse .txt, .xref .txt, .hit-text, .card-text, .desc, .key-verse, .bg-key, .bi-key) { word-break: keep-all; }
 .ai-head, .ai-sec, .deep-who, .deep-q, .flow-title, .tc-head, .ai-foot { text-align: left; }
 
@@ -744,8 +741,6 @@ button.para-sum.fail { display: block; width: calc(100% - 8px); text-align: left
 .book-intro { margin-left: 0; margin-right: 0; }
 .bi-head { padding-left: 8px; padding-right: 8px; }
 .bi-body { padding-left: 8px; padding-right: 8px; }
-.para-sum { margin-left: 0; margin-right: 0; padding: 6px 8px; }
-button.para-sum.fail { width: 100%; }
 .topic-card { padding: 10px 8px; border-width: 1px; }
 .tips { padding: 12px 10px; }
 .tips ul { padding-left: 16px; }
@@ -786,21 +781,10 @@ button.para-sum.fail { width: 100%; }
 .flow-title.solo::after { content: none !important; }
 .flow-title.solo { font-weight: 600; }
 .deep-link .link-text { font-size: 0.92em; opacity: 0.85; margin: 2px 0 4px; }
-.para-sum .pt-list .pt { padding-left: 0; }
-.para-sum .pt-list .pt::before { content: none; }
 .bg-card .pt-list { margin-top: 6px; }
 
 /* ================= v1.9.1: 단락 요약을 읽기 쉽게 · 배경 카드 두 부분 ================= */
 :root { --sum-bg: color-mix(in srgb, var(--accent) 6%, var(--card)); }
-.para-sum {
-  margin: 4px 0 calc(var(--fs) * .6); padding: 9px 11px 10px;
-  background: var(--sum-bg); color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent); border-left: 4px solid var(--accent);
-  border-radius: 10px; font-family: var(--sans);
-  font-size: calc(var(--desc) * .95); line-height: 1.6;
-}
-.para-sum.pending { color: var(--muted); font-size: calc(var(--desc) * .85); }
-.para-sum .pt-ko { color: var(--text); }
 .ps-tag {
   display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 6px;
   background: var(--accent); color: #fff; font-size: .74em; font-weight: 700; line-height: 1.6; vertical-align: 2px;
@@ -812,7 +796,6 @@ button.para-sum.fail { width: 100%; }
 .bg-range { white-space: nowrap; display: inline-block; }
 
 /* ================= v1.9.2: 단락 요약 글자에 소제목과 같은 계열의 색 ================= */
-.para-sum, .para-sum .pt-ko { color: color-mix(in srgb, var(--accent) 62%, var(--text)); }
 .ai-foot button { white-space: nowrap; flex-shrink: 0; }
 
 /* ================= v1.9.3: 📋 읽기표 ================= */
@@ -871,3 +854,47 @@ button.para-sum.fail { width: 100%; }
 [data-theme="dark"] .geo-chip.person.on { color: #15171c; }
 .person-info { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--sum-bg); border-left: 3px solid var(--accent); }
 .person-src { margin-top: 4px; }
+
+/* ================= v1.9.6: 🗺️ 지도를 더 잘 보이게 (땅·바다 대비, 굵은 해안선, 큰 점·글씨) ================= */
+:root { --map-sea: #a8cbe4; --map-land: #f7f0df; --map-line: #7d6a45; --map-river: #2a6fb0; --map-pt: #c62414; --map-pt-ring: #fff; --map-txt: #15100a; --map-halo: rgba(255,255,255,.96); }
+[data-theme="sepia"] { --map-sea: #a9c7c4; --map-land: #f3e6c6; --map-line: #7f6638; --map-river: #2f6e9e; }
+[data-theme="dark"] { --map-sea: #0b1a2b; --map-land: #4b473d; --map-line: #b3a684; --map-river: #6aaee6; --map-pt: #ffa14a; --map-pt-ring: #1a1a1a; --map-txt: #ffffff; --map-halo: rgba(0,0,0,.9); }
+.geo-land { stroke-width: 1.1; }
+.geo-lake { stroke-width: .7; }
+.geo-river { stroke-width: 1.6; }
+.geo-pt circle { stroke: var(--map-pt-ring); stroke-width: 1.6; }
+.geo-pt.region circle { stroke-width: 2; }
+.geo-pt text { font-size: 13.5px; font-weight: 800; stroke-width: 3.6px; }
+
+/* ================= v1.10: 📖 지명·낱말 풀이 (장 맨 위 · 검색 사전) ================= */
+.word-box { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.wb-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; text-align: left; font-size: var(--desc); line-height: 1.4; }
+.wb-title { font-weight: 700; white-space: nowrap; }
+.wb-names { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .9em; }
+.word-box.open .wb-title { flex: 1; }
+.wb-arrow { color: var(--muted); }
+.wb-body { padding: 0 10px 8px; font-size: var(--desc); line-height: var(--dlh, 1.45); }
+.wb-sec { font-weight: 700; margin: 6px 0 4px; }
+.wb-list { display: flex; flex-direction: column; gap: 4px; }
+.wb-item { background: var(--bg2); border-radius: 9px; padding: 6px 9px; text-align: left; overflow-wrap: anywhere; }
+.wb-name { color: var(--accent); margin-right: 6px; }
+.wb-text { color: var(--text); }
+.wb-v { margin-left: 6px; padding: 0 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: .8em; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.wb-more { margin-top: 4px; }
+.wb-src { margin: 6px 0 0; }
+.dict-card { background: var(--card); border: 1.5px solid var(--accent); border-radius: 14px; padding: 10px 10px; margin-bottom: 12px; font-size: var(--desc); line-height: 1.55; }
+.dict-h { font-weight: 700; margin-bottom: 6px; }
+
+/* ================= v1.11: 📘 책 소개 (중학생도 알 수 있게) ================= */
+.bi-body .pt-list { margin-top: 2px; }
+.bi-people { margin: 0 0 4px; }
+.bi-map { display: block; margin: 8px 0 2px; }
+.bi-body .geo-box { margin-top: 8px; }
+
+/* ================= v1.12: 📖 쉽게 정리 (💡 · 📘 맨 위) ================= */
+.easy-box { margin: 4px 0 12px; padding: 9px 11px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-left: 4px solid var(--accent); }
+.easy-h { font-weight: 700; margin-bottom: 4px; text-align: left; }
+.easy-list { margin: 0; padding-left: 18px; line-height: var(--dlh, 1.45); }
+.easy-list li { margin: 3px 0; text-align: left; overflow-wrap: anywhere; }
+.easy-src { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: var(--bg2); color: var(--muted); font-size: .74em; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.src-line { margin-top: 10px; color: var(--muted); }

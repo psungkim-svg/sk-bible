@@ -288,14 +288,19 @@ const GASK_PROMPT = `Reasoning: low
 ${PICK_RULES}
 ${TR_RULES}`;
 
-const PARAS_PROMPT = `Reasoning: low
-당신은 영어 성경 주석을 한국어로 옮기는 신학 번역가입니다.
-아래는 틴데일 스터디 노트(Tyndale Open Study Notes)에서 이 장의 단락들을 설명하는 노트들입니다. 노트마다 [v=절 번호]가 붙어 있습니다.
-각 노트에서 그 단락의 내용을 가장 잘 요약하는 문장 1~2개(이어진 문장)를 그대로 고르고 번역합니다.
+const EASY_PROMPT = `Reasoning: low
+당신은 성경 주석 문장들을 중학생도 알아듣게 정리하는 편집자입니다.
+아래 '문장들'은 실제 주석에서 원문 확인을 거친 문장과 그 번역입니다. 문장마다 [S번호]와 주석 이름이 붙어 있습니다.
+할 일: 이 문장들에 있는 내용만 가지고, 이 본문의 핵심을 3~5문장으로 쉽게 정리합니다.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
-{"paras":[{"v":1,"en":"그 노트의 원문 문장 그대로","ko":"충실한 번역"}]}
-${PICK_RULES}
-${TR_RULES}`;
+{"lines":[{"ko":"쉬운 한국어 문장","src":["S1","S3"]}]}
+규칙:
+- 각 문장(ko)은 '문장들'에 실제로 있는 내용만 씁니다. 거기 없는 사실·해석·숫자·인물·배경을 하나도 더하지 않습니다.
+- 각 문장의 src 에는 그 문장의 근거가 된 [S번호]를 모두 적습니다. 근거를 댈 수 없는 문장은 쓰지 않습니다.
+- 적용, 교훈("우리도 ~해야 합니다"), 기도, 권면, 감탄은 쓰지 않습니다. 본문이 무슨 뜻인지만 씁니다.
+- 중학생이 한 번에 알아듣는 쉬운 말, 존댓말(~입니다). 한 문장은 짧게 (60자 안팎). 어려운 한자어·학술 용어는 쉬운 말로.
+- 주석끼리 의견이 다르면 "~라고 보는 주석도 있습니다"처럼 갈린다는 것을 그대로 씁니다.
+- 순서: 이 본문이 무엇에 관한 것인지 → 중요한 내용 → (있으면) 어려운 곳의 뜻.`;
 
 /** 영어 비교용: 소문자 · 따옴표 통일 · 글자와 숫자만 */
 function normEn(s) {
@@ -507,23 +512,29 @@ async function doGqa(env, body) {
   }).filter(d => d.issue && d.views.length >= 2);
   return { qa, debates };
 }
-function parasNotes(list) {
-  return (Array.isArray(list) ? list : []).slice(0, 14)
-  .map(n => ({ v: Number(n?.v) || 0, text: clip(n?.text, 1500).trim() })).filter(n => n.v > 0 && n.text);
+function easyPts(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 24)
+    .map(p => ({ id: clip(p?.id, 6).trim(), who: clip(p?.who, 40).trim(), en: clip(p?.en, 800).trim(), ko: clip(p?.ko, 900).trim() }))
+    .filter(p => /^S\d{1,2}$/.test(p.id) && p.who && p.ko);
 }
-async function doParas(env, body) {
-  const q = clip(body.q, 400).trim();
-  const notes = parasNotes(body.notes);
-  const out = await runLLM(env, PARAS_PROMPT, `${q}\n\n${notes.map(n => `[v=${n.v}]\n${n.text}`).join('\n\n')}`, { max_tokens: 7000 });
-  const paras = [];
-  for (const p of (Array.isArray(out?.paras) ? out.paras : []).slice(0, 16)) {
-    const v = Number(p?.v) || 0;
-    const note = notes.find(n => n.v === v);
-    if (!note || paras.some(x => x.v === v)) continue;
-    const [pt] = verifyPts([p], note.text, 1);
-    if (pt) paras.push({ v, ...pt });
+/** 📖 쉽게 정리 — 확인된 주석 문장만 근거로 · 근거(S번호)를 못 댄 문장은 버림 */
+async function doEasy(env, body) {
+  const q = clip(body.q, 120).trim();
+  const pts = easyPts(body.pts);
+  if (pts.length < 2) return { lines: [] };
+  const ids = new Map(pts.map(p => [p.id, p]));
+  const ask = `본문: ${q}\n\n문장들:\n${pts.map(p => `[${p.id}] (${p.who}) ${p.ko}\n    원문: ${p.en}`).join('\n')}`;
+  const out = await runLLM(env, EASY_PROMPT, ask, { max_tokens: 4000 });
+  const lines = [];
+  for (const l of (Array.isArray(out?.lines) ? out.lines : []).slice(0, 6)) {
+    const ko = clip(l?.ko, 240).trim();
+    const src = [...new Set((Array.isArray(l?.src) ? l.src : []).map(x => String(x).replace(/[\[\]\s]/g, '')))].filter(x => ids.has(x));
+    if (!ko || !/[가-힣]/.test(ko) || !src.length) continue;
+    if (/(야 합니다|야 하겠|합시다|바랍니다|기도하|기도합|아멘|우리도 |본받)/.test(ko)) continue;   // 적용·권면·기도는 빼기
+    lines.push({ ko, who: [...new Set(src.map(x => ids.get(x).who))], src });
+    if (lines.length >= 5) break;
   }
-  return { paras };
+  return { lines };
 }
 
 async function handleAsk(request, env) {
@@ -560,9 +571,9 @@ async function handleAsk(request, env) {
         return { quotes };
       }, () => false);
     }
-    if (body.step === 'paras') {
-      if (!parasNotes(body.notes).length) return json({ paras: [] });
-      return grounded(env, request, `p|${clip(body.ck, 160)}`, () => doParas(env, body), r => r.paras.length > 0, { free: true });
+    if (body.step === 'easy') {
+      if (easyPts(body.pts).length < 2) return json({ lines: [] });
+      return grounded(env, request, `${clip(body.ck, 160)}`, () => doEasy(env, body), r => r.lines.length > 0, { free: true });
     }
 
     if (body.step === 'topic') {
@@ -794,7 +805,7 @@ async function handleAsk(request, env) {
    무료 AI 사용량(하루 10,000 뉴런)은 한국 시간 오전 9시(미국 동부 저녁 8시, 겨울엔 7시)에
    새로 채워집니다. 그 직전 한 시간(UTC 23시) 동안 5분마다 깨어나, 그날 남은 양으로
    ① 사람들이 읽은 장의 "다음 장" → ② 많이 읽는 책 순서로
-   단락 요약 · 배경 · (하루 최대 3개) 장 깊은 해설을 미리 만들어 D1에 넣어 둡니다.
+   배경 · (하루 최대 3개) 장 깊은 해설을 미리 만들어 D1에 넣어 둡니다. (v1.9.6: 단락 요약 없앰)
    - 만드는 방법은 폰이 부를 때와 똑같습니다 (주석 원문에서 고르고 번역만, 서버가 원문 확인).
    - 그날 쓴 양이 STOP(8,500)을 넘으면 바로 멈춥니다. 실패해도 다음 날 다시 시도.
    ================================================================ */
@@ -907,23 +918,6 @@ function cronExcerpt(items, max) {
   }
   return out.join('\n\n');
 }
-/** 틴데일 노트 가운데 3절 이상을 묶는 "단락 노트" (앱 paras.ts 와 같음) */
-function rangeNotesW(items, chapter) {
-  const out = [];
-  for (const it of items) {
-    for (const para of itemTextW(it).split('\n')) {
-      const t = para.trim();
-      const m = t.match(/^(\d+):(\d+)\s*[–-]\s*(?:(\d+):)?(\d+)\b/);
-      if (!m || Number(m[1]) !== chapter) continue;
-      const v = Number(m[2]);
-      const endCh = m[3] ? Number(m[3]) : chapter;
-      if (endCh === chapter && Number(m[4]) - v < 2) continue;
-      if (out.some(x => x.v === v)) continue;
-      out.push({ v, text: t.slice(0, 1500) });
-    }
-  }
-  return out.sort((a, b) => a.v - b.v).slice(0, 14);
-}
 /* 책 소개 나누기 (앱 study.ts 와 같음) */
 function introSectionsW(t) {
   const ps = t.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
@@ -990,25 +984,33 @@ async function haveKeys(env, keys) {
   }
   return has;
 }
-const lightKeys = (b, c) => [keyOf(`p|${b}.${c}`), `p:${b}.${c}`, `g:${b}.${c}`];
+const lightKeys = (b, c) => [`g:${b}.${c}`];   // v1.9.6: 단락 요약은 없앰 → 배경만
 const deepKeys = (b, c) => [keyOf(`q|c|${b}.${c}`), `d:${b}.${c}`];
-const lightDone = (has, b, c) => (has.has(keyOf(`p|${b}.${c}`)) || has.has(`p:${b}.${c}`)) && has.has(`g:${b}.${c}`);
+const lightDone = (has, b, c) => has.has(`g:${b}.${c}`);
 const deepDone = (has, b, c) => has.has(keyOf(`q|c|${b}.${c}`)) || has.has(`d:${b}.${c}`);
 
-/* ---- ① 단락 요약 + 배경 (한 장) ---- */
+/* ---- v1.11 책 소개 부분 (앱 study.ts 의 BI_PARTS 와 같게) ---- */
+const BI_W = {
+  w: { re: /^(author|date|recipients?|recpients|readers|audience|place and date|occasion and place)/i, n: '2~3', max: 3, size: 5000,
+    focus: n => `${n}을(를) 누가, 언제, 어디서, 누구에게 썼는가 — 처음 읽는 중학생도 알 수 있는 가장 기본적인 사실 (학자들의 논쟁 과정보다 결론)` },
+  y: { re: /^(occasion|purpose|paul.s purpose|meaning and message)/i, n: '2~3', max: 3, size: 5000,
+    focus: n => `${n}을(를) 왜 썼는가 — 이 책이 가장 하고 싶은 말, 큰 목적과 메시지` },
+  s: { re: /summary/i, n: '3~5', max: 5, size: 6000,
+    focus: n => `${n}의 줄거리 — 처음부터 끝까지 무슨 일(무슨 내용)이 차례로 나오는가. 큰 흐름만` },
+};
+function biSourceW(text, part) {
+  const P = BI_W[part];
+  const secs = introSectionsW(text);
+  let src = secs.filter(x => P.re.test(x.h)).flatMap(x => x.ps).join('\n\n');
+  if (!src && part === 's') src = secs.filter(x => /^setting/i.test(x.h)).flatMap(x => x.ps).join('\n\n');
+  if (!src) src = text;
+  return src.slice(0, P.size);
+}
+
+/* ---- ① 배경 (한 장) ---- */
 async function cronLight(env, st, b, c, has) {
   const ck = `${b}.${c}`;
   st.log.push(`light ${ck}`);
-  if (!has.has(keyOf(`p|${ck}`)) && !has.has(`p:${ck}`)) {
-    const j = await getJson(`${HELLOAO}/c/tyndale/${USFM_[b]}/${c}.json`);
-    const notes = j?.chapter?.content ? rangeNotesW(j.chapter.content, c) : [];
-    if (notes.length) {
-      st.calls++;
-      const r = await doParas(env, { q: `${KO_NAME[b]} ${c}장`, notes });
-      if (r.paras.length) await sharedPut(env, keyOf(`p|${ck}`), r);
-    }
-    await markPre(env, `p:${ck}`, Date.now());
-  }
   if (!has.has(`g:${ck}`) && st.calls < CRON_CALLS) {
     if (st.intro[b] === undefined) {
       const j = await getJson(`${HELLOAO}/c/tyndale/${USFM_[b]}/1.json`).catch(() => null);
@@ -1045,6 +1047,24 @@ async function cronLight(env, st, b, c, has) {
         n: '3~4', max: 4,
       });
       if (r.items.length) await sharedPut(env, keyOf(`x|b2|${b}`), r);
+    }
+    // v1.11 📘 책 소개 (누가·언제·어디서 / 왜 / 줄거리) — 1장을 미리 만들 때 함께
+    if (c === 1) {
+      let text = intro, who = '틴데일 스터디 노트 (책 소개)';
+      if (!text) {
+        const j = await getJson(`${HELLOAO}/c/jamieson-fausset-brown/${USFM_[b]}/1.json`).catch(() => null);
+        text = String(j?.book?.introduction || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        who = 'JFB 주석 (책 머리말)';
+      }
+      for (const part of text ? ['w', 'y', 's'] : []) {
+        const k = keyOf(`x|bi|${b}|${part}`);
+        if (await sharedGet(env, k)) continue;
+        if (st.calls >= CRON_CALLS) return true;   // 다음에 이어서 (표시를 남기지 않음)
+        st.calls++;
+        const P = BI_W[part];
+        const r = await doExtract(env, { style: 'easy', who, source: biSourceW(text, part), focus: P.focus(KO_NAME[b]), n: P.n, max: P.max });
+        if (r.items.length) await sharedPut(env, k, r);
+      }
     }
     await markPre(env, `g:${ck}`, Date.now());
   }
@@ -1102,6 +1122,24 @@ async function cronDeep(env, st, job) {
     const r = await doGqa(env, { q: label, text, n: '3~4', sources });
     if (r.qa.length || r.debates.length) await sharedPut(env, keyOf(`q|c|${ck}`), r);
   }
+  // v1.12 📖 쉽게 정리 — 위에서 만든(원문 확인된) 문장만 가지고 · 앱과 같은 순서
+  if (sources.length && st.calls < CRON_CALLS && !(await sharedGet(env, keyOf(`e|c|${ck}`)))) {
+    const pts = [];
+    const add = (who, p) => { if (p?.en && p?.ko && pts.length < 24) pts.push({ id: `S${pts.length + 1}`, who, en: p.en, ko: p.ko }); };
+    for (const x of job.srcs) {
+      if (!x) continue;
+      const r = await sharedGet(env, keyOf(`x|c|${ck}|${x.who}`));
+      (r?.items || []).forEach(p => add(x.who, p));
+    }
+    const g = await sharedGet(env, keyOf(`q|c|${ck}`));
+    (g?.qa || []).forEach(q => (q.pts || []).forEach(p => add(q.who, p)));
+    (g?.debates || []).forEach(d => (d.views || []).forEach(v => add(v.who, v)));
+    if (pts.length >= 2) {
+      st.calls++;
+      const r = await doEasy(env, { q: label, pts });
+      if (r.lines.length) await sharedPut(env, keyOf(`e|c|${ck}`), r);
+    }
+  }
   await markPre(env, `d:${ck}`, sources.length ? Date.now() : 1);   // 주석이 하나도 없던 장은 오늘 개수에 안 셈
   await metaSet(env, 'job', '');
   st.job = null;
@@ -1158,14 +1196,14 @@ async function cronStep(env, st) {
       return true;
     }
   }
-  // ③ 많이 읽는 책 순서로 단락 요약 + 배경
+  // ③ 많이 읽는 책 순서로 배경
   const t = await popScan(env, st, 'pc', lightKeys, lightDone);
   if (t) { await lightSafe(env, st, t); return true; }
   return false;
 }
 async function lightSafe(env, st, [b, c]) {
   const r = await soft(st, `light ${b}.${c}`, () => cronLight(env, st, b, c, st.has));
-  if (r === 'fail') { await markPre(env, `p:${b}.${c}`, 2); await markPre(env, `g:${b}.${c}`, 2); }
+  if (r === 'fail') await markPre(env, `g:${b}.${c}`, 2);
   lightKeys(b, c).forEach(k => st.has.add(k));
 }
 /** 많이 읽는 책 순서에서 아직 없는 첫 장 (앞쪽이 다 됐으면 표시를 앞으로 옮김) */

@@ -8,6 +8,8 @@ import { matchSegments, searchSentence, SentenceHit } from './sentenceSearch';
 import { addRecentSearch, goTo, openTab, setState, useStore } from './store';
 import { PageChooser } from './BookmarksView';
 import { findTopics, spanLabel, spanVerses, TopicHit } from './topics';
+import { DictItem, loadDictGeo, lookupDict } from './dict';
+import { DictList } from './Words';
 import { cacheGet, cacheSet, NS } from './study';
 import ChapterStudy from './ChapterStudy';
 
@@ -41,6 +43,7 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
   const settings = useStore(s => s.settings);
   const [ai, setAi] = useState<{ stage?: string; answer?: AiAnswer; error?: string; saved?: boolean } | null>(null);
   const [topics, setTopics] = useState<TopicHit[]>([]);
+  const [dictHits, setDictHits] = useState<DictItem[]>([]);
   const [openTopic, setOpenTopic] = useState<string | null>(null);
   const [deep, setDeep] = useState<{ book: number; chapter: number } | null>(null);
   const [runRef, setRunRef] = useState<ReturnType<typeof parseRef>>(null);
@@ -88,6 +91,9 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
     setRunRef(r);
     const t = findTopics(s);
     setTopics(t);
+    // 📖 사전 (지명 → 오늘날 · 단위 · 옛 말) — 맨 위에
+    setDictHits([]);
+    loadDictGeo().then(({ d, g }) => setDictHits(lookupDict(d, g, s))).catch(() => {});
     const strong = t.some(h => h.score >= 80);
     const hasNum = /\d/.test(s);
     const words = r && hasNum ? [] : searchWords(data, s, sc);
@@ -158,6 +164,14 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
           </button>
         )}
 
+        {/* ----- 📖 지명·낱말 사전 (v1.10) ----- */}
+        {dictHits.length > 0 && (
+          <div className="dict-card">
+            <div className="dict-h">📖 사전</div>
+            <DictList items={dictHits} />
+          </div>
+        )}
+
         {/* ----- 📖 주제 사전 ----- */}
         {bigTopics.map(h => (
           <TopicCard key={h.topic.name} h={h} data={data} guess={h.score < 65}
@@ -196,10 +210,10 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
           <div className="tips">
             <b>검색창 하나로 무엇이든</b>
             <ul>
-              <li><b>낱말</b>: <i>사랑</i>, <i>믿음 소망</i> (띄어 쓰면 모두 들어 있는 구절)</li>
+              <li><b>낱말</b>: <i>사랑</i>, <i>믿음 소망</i></li>
               <li><b>장절</b>: <i>요3:16</i>, <i>시23</i>, <i>요한복음 3장 16절</i> → 바로 이동</li>
-              <li><b>주제</b>: <i>팔복</i>, <i>주기도문</i>, <i>탕자</i>, <i>전신갑주</i>, <i>오병이어</i> … 약 280가지 (인터넷 없이 바로, 음성 입력 오타도 괜찮습니다)</li>
-              <li><b>기억나는 문장</b>: <i>능력 주시는 분 안에서 모든 것을 할 수 있다</i> → 비슷한 구절을 찾고, 인터넷이 되면 AI가 설명합니다. 한 번 받은 AI 답은 저장되어 다음엔 바로 나옵니다.</li>
+              <li><b>주제</b>: <i>팔복</i>, <i>주기도문</i>, <i>탕자</i>, <i>전신갑주</i>, <i>오병이어</i> … 약 280가지</li>
+              <li><b>기억나는 문장</b>: <i>능력 주시는 분 안에서 모든 것을 할 수 있다</i> → 비슷한 구절 + AI</li>
             </ul>
           </div>
         )}
@@ -219,7 +233,7 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
                   {a.corrected && a.corrected !== sQuery && <div className="ai-corrected">이렇게 이해했습니다: “{a.corrected}”</div>}
                   {a.intro && <p className="ai-intro">{a.intro}</p>}
                   {a.interpretation && <p className="ai-interp">{a.interpretation}</p>}
-                  {a.matches.length === 0 && <p className="desc">질문에 맞는 구절을 찾지 못했습니다. 다른 말로 다시 물어 보세요.</p>}
+                  {a.matches.length === 0 && <p className="desc">못 찾았습니다 · 다른 말로 물어 보세요</p>}
                   {a.matches.length > 0 && (
                     <>
                       <div className="ai-sec">📖 해당 성경 구절 (개역개정)</div>

@@ -3,7 +3,7 @@ import { BibleData } from './bible';
 import { goTo } from './store';
 import { parseRef } from './bible';
 import {
-  askLex, askTerm, runDeepVerse, type DeepProgress, askGrounded, cacheGet, cacheSet, COMMENTARY_CREDIT, getXrefs, LexAi, NS, passageLabel, TermAi, VerseAi,
+  askEasy, askLex, askTerm, runDeepVerse, type EasyAi, easyInputs, type DeepProgress, askGrounded, cacheGet, cacheSet, COMMENTARY_SHORT, getXrefs, LexAi, NS, passageLabel, TermAi, VerseAi,
   XRef, xrefLabel, XREF_MB, xrefReady, xrefText,
 } from './study';
 import { PtList } from './Pt';
@@ -155,6 +155,41 @@ export function useDeep(ns: string, key: string, run: (s: AbortSignal, on: (p: D
   return { val, prog, state, err, update, again: () => setN(x => x + 1) };
 }
 
+/** v1.12 📖 쉽게 정리 — 아래 주석 문장(원문 확인됨)만 가지고 3~5문장 · 문장마다 출처 (출처 없는 문장은 서버에서 버림) */
+const shortWho = (w: string) => w.replace(/\s*(주석|스터디 노트)$/, '');
+export function EasySummary({ kind, ekey, label, ai }: { kind: 'c' | 'v'; ekey: string; label: string; ai: VerseAi }) {
+  const [st, setSt] = useState<{ v?: EasyAi; state: 'loading' | 'idle' | 'error'; err?: string }>(() => {
+    const hit = cacheGet<EasyAi>(NS.easy, ekey);
+    return hit ? { v: hit, state: 'idle' } : { state: 'loading' };
+  });
+  const enough = easyInputs(ai).length >= 2;
+  useEffect(() => {
+    const hit = cacheGet<EasyAi>(NS.easy, ekey);
+    if (hit) { setSt({ v: hit, state: 'idle' }); return; }
+    if (!enough) { setSt({ state: 'idle' }); return; }
+    const ctl = new AbortController();
+    setSt({ state: 'loading' });
+    askEasy(kind, ekey, label, ai, ctl.signal)
+      .then(v => { if (!ctl.signal.aborted) setSt({ v, state: 'idle' }); })
+      .catch(e => { if (!ctl.signal.aborted) setSt({ state: 'error', err: (e as Error).message }); });
+    return () => ctl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ekey, enough]);
+  if (st.state === 'idle' && !st.v?.lines.length) return null;
+  return (
+    <div className="easy-box">
+      <div className="easy-h">📖 쉽게 정리 <span className="ai-note">아래 주석 문장만으로</span></div>
+      {st.state === 'loading' && <Waiting text="정리 중…" />}
+      {st.state === 'error' && <div className="ai-err">⚠️ {st.err}</div>}
+      {st.v && st.v.lines.length > 0 && (
+        <ul className="easy-list">
+          {st.v.lines.map((l, i) => <li key={i}>{l.ko} <span className="easy-src">{l.who.map(shortWho).join(' · ')}</span></li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function Waiting({ text }: { text: string }) {
   return <div className="deep-wait"><div className="spinner small" /> {text}</div>;
 }
@@ -169,9 +204,9 @@ export function GroundedBody({ ai, prog, titles }: { ai: VerseAi; prog: DeepProg
           {ai.comm.map((c, i) => (
             <div key={i} className="deep-box"><div className="deep-who">{c.who}</div><PtList pts={c.pts} /></div>
           ))}
-          {commWait.length > 0 && <Waiting text={prog?.collecting && commWait.length === prog.comm.length ? '주석 자료를 모으는 중…' : `${commWait.join(' · ')} 읽고 번역하는 중…`} />}</>
+          {commWait.length > 0 && <Waiting text={prog?.collecting && commWait.length === prog.comm.length ? '주석 자료를 모으는 중…' : `${commWait.join(' · ')} 번역 중…`} />}</>
       )}
-      {prog && prog.qa === 'wait' && <><div className="ai-sec">{titles.qa}</div><Waiting text={prog.collecting ? '주석 자료를 모은 뒤 찾습니다…' : '주석이 직접 답하는 곳을 찾아 번역하는 중…'} /></>}
+      {prog && prog.qa === 'wait' && <><div className="ai-sec">{titles.qa}</div><Waiting text={prog.collecting ? '기다리는 중…' : '찾는 중…'} /></>}
       {ai.qa.length > 0 && (
         <><div className="ai-sec">{titles.qa}</div>
           {ai.qa.map((x, i) => (
@@ -202,15 +237,16 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
     <>
       <div className="ai-card deep">
         <div className="ai-head">💡 깊은 해설 <span className="ai-note">주석 원문 번역</span></div>
+        {ai && !busy && !prog && <EasySummary kind="v" ekey={key} label={passageLabel(book, chapter, verses)} ai={ai} />}
         {state === 'error' && !val && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={again}>다시 시도</button></div>}
         {busy && !prog && !val && <Waiting text="준비 중…" />}
         {ai && (
           <>
             <GroundedBody ai={ai} prog={prog} titles={{ comm: '📚 주석가들은 이렇게 봅니다', qa: '❓ 궁금증 풀이' }} />
-            {empty && <p className="desc">이 구절을 직접 다루는 주석 내용을 찾지 못했습니다. 앞뒤 절을 함께 골라 보거나 📘 장 깊은 해설을 열어 보세요.</p>}
-            {(failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부를 받지 못했습니다. 아래 "다시 해설"을 눌러 주세요.</div>}
+            {empty && <p className="desc">이 구절을 다룬 주석이 없습니다 · 📘 장 해설을 보세요</p>}
+            {(failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부 실패 · 아래 ↻ 다시 해설</div>}
             <div className="ai-foot">
-              {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '끝난 부분부터 보여 드립니다'}</span> : <button onClick={again}>↻ 다시 해설</button>}
+              {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '받는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
             </div>
           </>
         )}
@@ -218,7 +254,7 @@ function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; bo
 
       {val && !busy && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={val} update={update} />}
 
-      <p className="desc small">주석에 실제로 있는 문장만 골라 번역해 보여 드립니다. 문장 끝 "원문"을 누르면 영어 원문을 볼 수 있습니다. 관련 구절은 위 🔗 탭에 있습니다.<br />{COMMENTARY_CREDIT}</p>
+      <p className="desc small src-line">{COMMENTARY_SHORT}</p>
     </>
   );
 }
@@ -241,18 +277,18 @@ function AskMore({ data, book, chapter, verses, ai, update }: { data: BibleData;
   };
   return (
     <div className="ai-card">
-      <div className="ai-head">💬 이 구절에 대해 묻기 <span className="ai-note">주석에서 답을 찾아 드립니다</span></div>
+      <div className="ai-head">💬 이 구절에 대해 묻기 <span className="ai-note">주석에서 답 찾기</span></div>
       {(ai.asks || []).map((x, i) => (
         <div key={i} className="deep-qa">
           <div className="deep-q">Q. {x.q}</div>
-          <div className="deep-a">{x.quotes?.length ? <PtList pts={x.quotes} /> : <span className="muted">주석 자료에서 이 질문에 직접 답하는 내용을 찾지 못했습니다.</span>}</div>
+          <div className="deep-a">{x.quotes?.length ? <PtList pts={x.quotes} /> : <span className="muted">주석에 직접 답이 없습니다</span>}</div>
         </div>
       ))}
       <div className="term-ask ask-more">
         <textarea value={q} onChange={e => setQ(e.target.value)} rows={3} placeholder="궁금한 점을 적어 주세요 (예: 여기서 '세상'은 누구를 말하나요?)" />
         <button className="primary" disabled={!q.trim() || busy} onClick={send}>{busy ? '…' : '묻기'}</button>
       </div>
-      {busy && <div className="busy" style={{ padding: '8px 0' }}><div className="spinner small" /> 주석에서 답이 되는 문장을 찾는 중… (20~40초)</div>}
+      {busy && <div className="busy" style={{ padding: '8px 0' }}><div className="spinner small" /> 찾는 중… (20~40초)</div>}
       {err && <div className="ai-err">⚠️ {err}</div>}
     </div>
   );
@@ -282,7 +318,7 @@ function XrefTab({ data, book, chapter, verses, onOpen }: { data: BibleData; boo
       )}
       {!list && !err && <div className="busy"><div className="spinner small" /> 관련 구절을 찾는 중… {!xrefReady() && <span className="muted">(처음 한 번 약 {XREF_MB}MB)</span>}</div>}
       {err && <div className="ai-err">⚠️ {err}</div>}
-      {list && list.length === 0 && <div className="ai-err">이 절에는 등록된 관련 구절이 없습니다.</div>}
+      {list && list.length === 0 && <div className="ai-err">관련 구절 없음</div>}
       {list && list.length > 0 && <div className="local-head">{chapter}:{cur}절과 연결된 말씀 {list.length}곳 (많이 연결된 순서)</div>}
       {list?.map((x, i) => (
         <div key={i} className="ai-verse xref" onClick={() => setOpen(open === i ? null : i)}>
@@ -295,7 +331,7 @@ function XrefTab({ data, book, chapter, verses, onOpen }: { data: BibleData; boo
           )}
         </div>
       ))}
-      <p className="desc small">관련 구절 자료: OpenBible.info 교차참조 (CC BY). 구절을 누르면 펼쳐지고, "이 말씀으로 가기"로 이동합니다. 뒤로 버튼을 누르면 다시 돌아옵니다.</p>
+      <p className="desc small src-line">출처: OpenBible.info (CC BY)</p>
     </div>
   );
 }
@@ -310,8 +346,8 @@ function LexTab({ data, book, chapter, verses }: { data: BibleData; book: number
     <div>
       <div className="ai-card">
         <div className="ai-head"><span className="ai-badge">AI</span> 어려운 낱말 풀이</div>
-        <AiStatus state={state} err={err} has={!!ai} again={again} wait="낱말과 이름을 찾는 중… (10~20초)" />
-        {ai && ai.words.length === 0 && <div className="ai-err">풀이가 필요한 어려운 낱말이 없습니다.</div>}
+        <AiStatus state={state} err={err} has={!!ai} again={again} wait="찾는 중… (10~20초)" />
+        {ai && ai.words.length === 0 && <div className="ai-err">어려운 낱말 없음</div>}
         {ai?.words.map((w, i) => (
           <div key={i} className="lex-row">
             <b className="lex-w">{w.w}</b> <span className="lex-arrow">→</span> <span>{w.mean}</span>

@@ -11,7 +11,7 @@ import { getHeads } from './headings';
 import { cacheGet, cacheSet } from './aicache';
 export { cacheGet, cacheSet };
 // v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
-export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', para: 'sk-ai-para-v1', who: 'sk-ai-who-v1' };
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', who: 'sk-ai-who-v1', bi: 'sk-ai-bi-v1', easy: 'sk-ai-easy-v1' };
 
 /** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
 export function deviceId() {
@@ -59,6 +59,7 @@ export const COMMENTARIES: Comm[] = [
   { id: 'keil-delitzsch', name: '카일·델리취 주석', max: 3200, ot: true },
   { id: 'jamieson-fausset-brown', name: 'JFB 주석', max: 3000, nt: true },
 ];
+export const COMMENTARY_SHORT = '출처: 칼빈 · 매튜 헨리 · 카일·델리취 · JFB (공개 저작물) · 틴데일 스터디 노트 (CC BY-SA) · HelloAO';
 export const COMMENTARY_CREDIT = '주석 자료: 칼빈 · 매튜 헨리(칼빈 주석이 없는 책) · 카일·델리취 · JFB (공개 저작물), 틴데일 스터디 노트 (CC BY-SA 4.0) — HelloAO Free Use Bible API 제공. AI는 원문 문장을 고르고 번역만 하며, 고른 문장이 원문에 있는지 서버가 확인합니다.';
 /** 이 책에서 읽을 주석 3가지 (인터넷이 없으면 없음) */
 export function commList(book: number): Comm[] {
@@ -458,6 +459,82 @@ export async function askChapBg(book: number, chapter: number, signal?: AbortSig
   const out: BgAi = { pts: r.items || [], range: para.range };
   if (!out.pts.length) out.none = true;
   cacheSet(NS.bg, pkey, out); cacheSet(NS.bg, ckey, out);
+  return out;
+}
+
+/* ---------- v1.11 📘 책 소개 (중학생도 알 수 있게) — 틴데일 책 소개에서 골라 쉬운 말로 번역 ----------
+   w = 누가·언제·어디서·누구에게 / y = 왜 썼나 / s = 줄거리
+   (틴데일 소개가 없는 사사기는 JFB 주석의 책 머리말에서) */
+export type BiPart = 'w' | 'y' | 's';
+export const BI_PARTS: Record<BiPart, { re: RegExp; focus: (n: string) => string; n: string; max: number; size: number }> = {
+  w: { re: /^(author|date|recipients?|recpients|readers|audience|place and date|occasion and place)/i, n: '2~3', max: 3, size: 5000,
+    focus: n => `${n}을(를) 누가, 언제, 어디서, 누구에게 썼는가 — 처음 읽는 중학생도 알 수 있는 가장 기본적인 사실 (학자들의 논쟁 과정보다 결론)` },
+  y: { re: /^(occasion|purpose|paul.s purpose|meaning and message)/i, n: '2~3', max: 3, size: 5000,
+    focus: n => `${n}을(를) 왜 썼는가 — 이 책이 가장 하고 싶은 말, 큰 목적과 메시지` },
+  s: { re: /summary/i, n: '3~5', max: 5, size: 6000,
+    focus: n => `${n}의 줄거리 — 처음부터 끝까지 무슨 일(무슨 내용)이 차례로 나오는가. 큰 흐름만` },
+};
+const biSrcCache = new Map<number, Promise<{ text: string; who: string }>>();
+export function bookIntroSrc(book: number): Promise<{ text: string; who: string }> {
+  let p = biSrcCache.get(book);
+  if (!p) {
+    p = bookIntro(book).then(async t => {
+      if (t) return { text: t, who: '틴데일 스터디 노트 (책 소개)' };
+      const j = await fetch(`https://bible.helloao.org/api/c/jamieson-fausset-brown/${USFM[book]}/1.json`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+      const x = String(j?.book?.introduction || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+      return { text: x, who: 'JFB 주석 (책 머리말)' };
+    });
+    p.then(r => { if (!r.text) biSrcCache.delete(book); });
+    biSrcCache.set(book, p);
+  }
+  return p;
+}
+export function biSource(text: string, part: BiPart): string {
+  const P = BI_PARTS[part];
+  const secs = introSections(text);
+  let src = secs.filter(x => P.re.test(x.h)).flatMap(x => x.ps).join('\n\n');
+  if (!src && part === 's') src = secs.filter(x => /^setting/i.test(x.h)).flatMap(x => x.ps).join('\n\n');
+  if (!src) src = text;
+  return src.slice(0, P.size);
+}
+export interface BiAi { pts: Pt[]; who: string; none?: boolean }
+export async function askBookIntro(book: number, part: BiPart, signal?: AbortSignal, force = false): Promise<BiAi> {
+  const key = `${book}|${part}`;
+  const hit = !force && cacheGet<BiAi>(NS.bi, key);
+  if (hit) return hit;
+  if (!navigator.onLine) throw new Error('인터넷 연결 시 보입니다');
+  const { text, who } = await bookIntroSrc(book);
+  if (!text) return { pts: [], who, none: true };
+  const P = BI_PARTS[part];
+  const r = await ask<{ items: Pt[] }>({
+    step: 'extract', style: 'easy', q: `${BOOKS[book].name} 소개`, who, source: biSource(text, part),
+    focus: P.focus(BOOKS[book].name), n: P.n, max: P.max, ck: `bi|${book}|${part}`,
+  }, signal);
+  const out: BiAi = { pts: r.items || [], who };
+  if (!out.pts.length) out.none = true;
+  else cacheSet(NS.bi, key, out);
+  return out;
+}
+
+/* ---------- v1.12 📖 쉽게 정리 — 위에 보이는 주석 문장(원문 확인된 것)만 가지고 3~5문장 · 문장마다 출처 ---------- */
+export interface EasyAi { lines: { ko: string; who: string[] }[] }
+export interface EasyIn { id: string; who: string; en: string; ko: string }
+export function easyInputs(ai: VerseAi): EasyIn[] {
+  const out: EasyIn[] = [];
+  const add = (who: string, p: { en: string; ko: string }) => { if (p.en && p.ko && out.length < 24) out.push({ id: `S${out.length + 1}`, who, en: p.en, ko: p.ko }); };
+  ai.comm.forEach(c => c.pts.forEach(p => add(c.who, p)));
+  ai.qa.forEach(q => q.pts.forEach(p => add(q.who, p)));
+  ai.debates.forEach(d => d.views.forEach(v => add(v.who, v)));
+  return out;
+}
+export async function askEasy(kind: 'c' | 'v', key: string, label: string, ai: VerseAi, signal?: AbortSignal, force = false): Promise<EasyAi> {
+  const hit = !force && cacheGet<EasyAi>(NS.easy, key);
+  if (hit) return hit;
+  const pts = easyInputs(ai);
+  if (pts.length < 2) return { lines: [] };
+  const r = await ask<EasyAi>({ step: 'easy', q: label, pts, ck: `e|${kind}|${key}` }, signal);
+  const out: EasyAi = { lines: (r.lines || []).filter(l => l.ko && l.who?.length) };
+  if (out.lines.length) cacheSet(NS.easy, key, out);
   return out;
 }
 

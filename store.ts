@@ -57,9 +57,10 @@ export interface Settings {
   descFontSize: number;       // 설명 글씨 (AI 해설·소개·낱말 풀이 등)
   titleFontSize: number;      // 본문 위 성경 제목 (예: 전도서 8장)
   descLineHeight: number;     // 설명(해설·주석 등) 줄 간격
-  paraSum: boolean;           // 📝 단락 요약 (v1.9: 틴데일 단락 노트 번역)
   showOrig: boolean;          // 해설의 영어 원문을 늘 펼쳐 보기
   scrollSpeed: number;        // ⏬ 자동 스크롤 속도 1~10
+  showWords: boolean;         // v1.10 장 맨 위 "📖 지명·낱말 풀이" 상자
+  wordsOpen: boolean;         // 그 상자를 펼쳐 둘지 (마지막 상태 기억)
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -124,9 +125,10 @@ export const DEFAULT_SETTINGS: Settings = {
   descFontSize: 20,
   titleFontSize: 22,
   descLineHeight: 1.45,
-  paraSum: true,
   scrollSpeed: 4,
   showOrig: false,
+  showWords: true,
+  wordsOpen: false,
 };
 
 const KEY = 'sk-bible-v1';

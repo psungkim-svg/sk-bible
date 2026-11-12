@@ -11,9 +11,9 @@ import BookPicker from './BookPicker';
 import ToolIcons, { Chev, setAuto, useAuto } from './ToolIcons';
 import StudyView from './StudyView';
 import { BackgroundCard, BookIntro } from './ChapterInfo';
+import { WordBox } from './Words';
 import { getHeads, Head } from './headings';
-import { ensureParas, ParaPt, ParaState, pingRead, useParas } from './paras';
-import { PtLine } from './Pt';
+import { pingRead } from './paras';
 
 interface Props { index: number; data: BibleData; active: boolean; }
 
@@ -40,6 +40,7 @@ export default function Reader({ index, data, active }: Props) {
   useEffect(() => { setBgOpen(false); }, [book, chapter]);
   /* 📘 장 깊은 해설 */
   const [chapOpen, setChapOpen] = useState(false);
+  const showWords = settings.showWords;
   // 장 맨 위: (1장이면) 책 소개 + "📜 배경"을 누르면 펼쳐지는 배경 카드
   const topSlot = useMemo<ReactNode>(() => (
     <>
@@ -48,13 +49,9 @@ export default function Reader({ index, data, active }: Props) {
       </div>
       {chapter === 1 && <BookIntro data={data} book={book} compact onGo={(c, v) => goTo(index, { book, chapter: c, verse: v ?? 1 })} />}
       {bgOpen && <BackgroundCard data={data} book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
+      {showWords && <WordBox book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
     </>
-  ), [data, book, chapter, bgOpen, index]);
-  const paras = useParas(book, chapter);
-  // 📝 단락 요약: 틴데일 단락 노트가 있는 장이면 원문 문장을 골라 번역 (처음 한 번, 인터넷이 될 때)
-  useEffect(() => {
-    if (active && settings.paraSum) ensureParas(book, chapter);
-  }, [active, settings.paraSum, book, chapter]);
+  ), [data, book, chapter, bgOpen, index, showWords]);
   // 🌙 5초 넘게 펴 둔 장만 "읽음"으로 알림 (넘겨 보기만 한 장은 빼고)
   useEffect(() => {
     if (!active) return;
@@ -347,7 +344,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={selected} flashV={flashV}
-            paras={paras} onRetryParas={() => ensureParas(book, chapter, true)} paraSum={settings.paraSum} topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -363,7 +360,7 @@ export default function Reader({ index, data, active }: Props) {
         </div>
         {ghost && (
           <div className="scroll ghost" ref={ghostRef} style={{ transform: `translateX(${ghost.dir * 100}%)` }} aria-hidden>
-            <GhostBody data={data} book={ghost.book} chapter={ghost.chapter} highlights={highlights} showHeadings={settings.showHeadings} showTopic={settings.showTopic} paraSum={settings.paraSum} />
+            <GhostBody data={data} book={ghost.book} chapter={ghost.chapter} highlights={highlights} showHeadings={settings.showHeadings} showTopic={settings.showTopic} />
           </div>
         )}
       </div>
@@ -447,14 +444,12 @@ interface BodyProps {
   selected?: number[];
   flashV?: number;
   limit?: number;
-  paras?: ParaState;
   onRetryParas?: () => void;
   topSlot?: ReactNode;
   bgOpen?: boolean;
   onTopicClick?: () => void;
   showHeadings?: boolean;
   showTopic?: boolean;
-  paraSum?: boolean;                 // 📝 단락 요약
   handlers?: {
     onClick: (v: number) => void;
     onTouchStart: (v: number, e: React.TouchEvent) => void;
@@ -465,22 +460,16 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, paras, onRetryParas, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, paraSum, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
   const headAt = new Map<number, Head[]>();
   if (showHeadings) for (const hd of getHeads(book, chapter)) headAt.set(hd.v, [...(headAt.get(hd.v) ?? []), hd]);
-  const sumAt = new Map<number, ParaPt>();
-  if (paraSum && paras?.paras) for (const p of paras.paras) sumAt.set(p.v, p);
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
       {showTopic && onTopicClick && (
         <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{chapter === 1 || data[book].length === 1 ? <>📜 {BOOKS[book].name} 전체의 배경</> : <>📍 {chapter}{book === 18 ? '편' : '장'}의 배경</>}<span className="topic-more">보기 <Chev open={!!bgOpen} /></span></button>
-      )}
-      {paraSum && paras?.status === 'loading' && <div className="para-sum pending">📝 단락 요약(틴데일 노트)을 번역하는 중… (10~30초)</div>}
-      {paraSum && paras?.status === 'fail' && onRetryParas && (
-        <button className="para-sum fail" onClick={onRetryParas}>📝 단락 요약을 못 받았어요 ({paras.error}) · 눌러서 다시 시도</button>
       )}
       {topSlot}
       <div className="verses">
@@ -494,7 +483,6 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
             {head?.map((hd, j) => (
               <h3 key={j} className="sec-head">{hd.title}{hd.refs && <span className="sec-refs">({hd.refs})</span>}</h3>
             ))}
-            {sumAt.get(v) && <div className="para-sum"><ul className="pt-list"><PtLine tag="요약" en={sumAt.get(v)!.en} ko={sumAt.get(v)!.ko} /></ul></div>}
             <p
               data-v={v}
               className={'verse' + (selected.includes(v) ? ' sel' : '') + (hl ? ' hl-' + hl : '') + (flashV === v ? ' flash' : '')}
@@ -516,9 +504,8 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
 });
 
 /** 옆에서 따라 들어오는 장 (소제목도 함께) */
-function GhostBody(p: { data: BibleData; book: number; chapter: number; highlights: Record<string, HlColor>; showHeadings: boolean; showTopic: boolean; paraSum: boolean }) {
-  const paras = useParas(p.book, p.chapter);
-  return <ChapterBody {...p} paras={paras} limit={60} />;
+function GhostBody(p: { data: BibleData; book: number; chapter: number; highlights: Record<string, HlColor>; showHeadings: boolean; showTopic: boolean }) {
+  return <ChapterBody {...p} limit={60} />;
 }
 
 function Ico({ d }: { d: string }) {

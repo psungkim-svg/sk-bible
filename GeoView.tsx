@@ -77,7 +77,7 @@ export function PlaceMap({ pts, onVerse }: { pts: MapPt[]; onVerse?: (v: number)
       {labels.map((l, i) => (
         <g key={i} className={'geo-pt' + (l.p.kind === 'R' ? ' region' : '') + (onVerse && l.p.v ? ' tap' : '')}
           onClick={onVerse && l.p.v ? () => onVerse(l.p.v!) : undefined}>
-          <circle cx={l.x} cy={l.y} r={l.p.kind === 'R' ? 3.2 : 4} />
+          <circle cx={l.x} cy={l.y} r={l.p.kind === 'R' ? 4 : 5} />
           {l.anc && <text x={l.lx} y={l.ly} textAnchor={l.anc as 'start'}>{l.p.name}</text>}
         </g>
       ))}
@@ -141,10 +141,10 @@ function PersonInfo({ p }: { p: Person }) {
   }, [p, n]);
   return (
     <div className="person-info">
-      {st.loading && !st.pts && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> {p.name} 소개를 찾아 번역하는 중…</div>}
+      {st.loading && !st.pts && <div className="busy" style={{ padding: '4px 0' }}><div className="spinner small" /> 번역 중…</div>}
       {st.err && <div className="ai-err">⚠️ {st.err} <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></div>}
-      {st.pts && (st.pts.length ? <PtList pts={st.pts} /> : <p className="desc muted">성경사전에 이 인물의 소개가 없습니다.</p>)}
-      {st.pts && <div className="person-src muted small">Easton 성경사전(1897) · 쉬운 말 번역</div>}
+      {st.pts && (st.pts.length ? <PtList pts={st.pts} /> : <p className="desc muted">소개 없음</p>)}
+      {st.pts && <div className="person-src muted small">출처: Easton 성경사전</div>}
     </div>
   );
 }
