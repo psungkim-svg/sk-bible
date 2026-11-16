@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { BibleData } from './bible';
 import { goTo } from './store';
 import { parseRef } from './bible';
@@ -15,18 +15,74 @@ type TabId = 'explain' | 'xref' | 'lex';
 interface Props {
   data: BibleData; book: number; chapter: number; verses: number[]; page: number;
   onClose: () => void; initialTab?: TabId;
+  /** 절을 짧게 눌렀을 때: 아래에서 올라오는 카드 */
+  sheet?: { actions: ReactNode; onPrev?: () => void; onNext?: () => void };
 }
 
-/** 절을 고르고 "해설"을 누르면 나오는 화면: AI 해설 · 관련 구절 · 낱말과 인물 */
-export default function StudyView({ data, book, chapter, verses, page, onClose, initialTab }: Props) {
+/** 카드에서는 아직 없는 해설을 1초 머문 뒤에만 AI로 만듦 (빠르게 넘길 때 무료 한도 아끼기) */
+const DwellCtx = createContext(0);
+function useDwell(skip: boolean, n: number) {
+  const ms = useContext(DwellCtx);
+  const [ok, setOk] = useState(skip || !ms || n > 0);
+  useEffect(() => {
+    if (ok || skip || !ms) { if (!ok) setOk(true); return; }
+    const t = setTimeout(() => setOk(true), ms);
+    return () => clearTimeout(t);
+  }, [ok, skip, ms]);
+  return ok || n > 0;
+}
+
+/** 절을 누르면 나오는 해설: AI 해설 · 관련 구절 · 낱말과 인물 */
+export default function StudyView({ data, book, chapter, verses, page, onClose, initialTab, sheet }: Props) {
   const v = [...verses].sort((a, b) => a - b).slice(0, 12);
   const [tab, setTab] = useState<TabId>(initialTab || 'explain');
   // 낱말·인물은 그 탭을 처음 열 때 요청 (해설 AI와 자리 다툼을 줄여 해설이 빨라짐)
   const [seen, setSeen] = useState<Record<string, boolean>>({ [initialTab || 'explain']: true });
   useEffect(() => { setSeen(o => (o[tab] ? o : { ...o, [tab]: true })); }, [tab]);
+  const [tall, setTall] = useState(false);
   useBackClose(true, onClose);
   const label = passageLabel(book, chapter, v);
   const ch = data[book][chapter - 1];
+
+  const tabs = (
+    <div className="seg study-tabs">
+      <button className={tab === 'explain' ? 'on' : ''} onClick={() => setTab('explain')}>💡 해설</button>
+      <button className={tab === 'xref' ? 'on' : ''} onClick={() => setTab('xref')}>🔗 관련 구절</button>
+      <button className={tab === 'lex' ? 'on' : ''} onClick={() => setTab('lex')}>📚 낱말·인물</button>
+    </div>
+  );
+  const body = (
+    <div className="study-body" key={v.join(',')}>
+      {/* 번역 비교(새번역 · BSB)는 해설 탭에서만, 관련 구절 · 낱말 탭은 개역개정만 짧게 */}
+      <div className="orig-kor">
+        <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
+        {tab === 'explain' && <TrCompare book={book} chapter={chapter} verses={v} />}
+      </div>
+      {/* 해설 · 관련 구절은 미리 만들어 두고, 낱말 탭은 처음 열 때 만듦 */}
+      <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v}
+        onGo={r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); }} /></div>
+      <div hidden={tab !== 'xref'}><XrefTab data={data} book={book} chapter={chapter} verses={v} onOpen={x => { onClose(); goTo(page, { book: x.book, chapter: x.chapter, verse: x.verse }); }} /></div>
+      <div hidden={tab !== 'lex'}>{seen.lex && <LexTab data={data} book={book} chapter={chapter} verses={v} />}</div>
+    </div>
+  );
+
+  if (sheet) {
+    return (
+      <DwellCtx.Provider value={1000}>
+        <div className={'vsheet' + (tall ? ' tall' : '')}>
+          <button className="vs-grip" onClick={() => setTall(t => !t)} aria-label={tall ? '카드 줄이기' : '카드 늘리기'}><span /></button>
+          <div className="vs-acts">{sheet.actions}</div>
+          <div className="vs-nav">
+            <button onClick={sheet.onPrev} disabled={!sheet.onPrev}>‹ 이전 절</button>
+            <b>{label}</b>
+            <button onClick={sheet.onNext} disabled={!sheet.onNext}>다음 절 ›</button>
+          </div>
+          {tabs}
+          <div className="vs-scroll">{body}</div>
+        </div>
+      </DwellCtx.Provider>
+    );
+  }
 
   return (
     <div className="overlay study">
@@ -37,23 +93,8 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
         <div className="ov-title">해설 · {label}</div>
         <button className="icon-btn" onClick={onClose} aria-label="닫기">✕</button>
       </div>
-      <div className="seg study-tabs">
-        <button className={tab === 'explain' ? 'on' : ''} onClick={() => setTab('explain')}>💡 해설</button>
-        <button className={tab === 'xref' ? 'on' : ''} onClick={() => setTab('xref')}>🔗 관련 구절</button>
-        <button className={tab === 'lex' ? 'on' : ''} onClick={() => setTab('lex')}>📚 낱말·인물</button>
-      </div>
-      <div className="study-body">
-        {/* 번역 비교(새번역 · BSB)는 해설 탭에서만, 관련 구절 · 낱말 탭은 개역개정만 짧게 */}
-        <div className="orig-kor">
-          <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
-          {tab === 'explain' && <TrCompare book={book} chapter={chapter} verses={v} />}
-        </div>
-        {/* 해설 · 관련 구절은 미리 만들어 두고, 낱말 탭은 처음 열 때 만듦 */}
-        <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v}
-          onGo={r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); }} /></div>
-        <div hidden={tab !== 'xref'}><XrefTab data={data} book={book} chapter={chapter} verses={v} onOpen={x => { onClose(); goTo(page, { book: x.book, chapter: x.chapter, verse: x.verse }); }} /></div>
-        <div hidden={tab !== 'lex'}>{seen.lex && <LexTab data={data} book={book} chapter={chapter} verses={v} />}</div>
-      </div>
+      {tabs}
+      {body}
     </div>
   );
 }
@@ -106,8 +147,10 @@ function useAi<T>(ns: string, key: string, max: number, run: (s: AbortSignal, ph
   const [err, setErr] = useState('');
   const [n, setN] = useState(0);
   const [phase, setPhase] = useState('');
+  const go = useDwell(!!val, n);
   useEffect(() => {
     if (val && n === 0) return;
+    if (!go) { setState('loading'); return; }
     const ctl = new AbortController();
     setState('loading'); setPhase('');
     run(ctl.signal, p => { if (!ctl.signal.aborted) setPhase(p); })
@@ -115,7 +158,7 @@ function useAi<T>(ns: string, key: string, max: number, run: (s: AbortSignal, ph
       .catch(e => { if (!ctl.signal.aborted) { setErr((e as Error).message); setState('error'); } });
     return () => ctl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n, key]);
+  }, [n, key, go]);
   const update = (v: T) => { setVal(v); cacheSet(ns, key, v, max); };
   return { val, state, err, phase, update, again: () => setN(x => x + 1) };
 }
@@ -141,8 +184,10 @@ export function useDeep(ns: string, key: string, run: (s: AbortSignal, on: (p: D
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [err, setErr] = useState('');
   const [n, setN] = useState(0);
+  const go = useDwell(!!val, n);
   useEffect(() => {
     if (val && n === 0) return;
+    if (!go) { setState('loading'); return; }
     const ctl = new AbortController();
     setState('loading'); setProg(null); setErr('');
     run(ctl.signal, p => { if (!ctl.signal.aborted) setProg(p); })
@@ -150,7 +195,7 @@ export function useDeep(ns: string, key: string, run: (s: AbortSignal, on: (p: D
       .catch(e => { if (!ctl.signal.aborted) { setErr((e as Error).message); setState('error'); setProg(null); } });
     return () => ctl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n, key]);
+  }, [n, key, go]);
   const update = (v: VerseAi) => { setVal(v); cacheSet(ns, key, v); };
   return { val, prog, state, err, update, again: () => setN(x => x + 1) };
 }

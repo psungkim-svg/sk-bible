@@ -6,7 +6,7 @@ import {
   addBookmark, addMemory, goBack, goTo, HlColor, setHighlight, setSettings, updatePage, useStore,
 } from './store';
 import ChapterStudy from './ChapterStudy';
-import { copyText, shareText, toast, useBackClose } from './utils';
+import { copyText, toast, useBackClose } from './utils';
 import BookPicker from './BookPicker';
 import ToolIcons, { Chev, setAuto, useAuto } from './ToolIcons';
 import StudyView from './StudyView';
@@ -36,6 +36,9 @@ export default function Reader({ index, data, active }: Props) {
   const [flashV, setFlashV] = useState<number | undefined>();
   const [studyOpen, setStudyOpen] = useState<number[] | null>(null);
   const [studyTab, setStudyTab] = useState<'explain' | 'xref'>('explain');
+  /* 절을 짧게 누르면 아래에서 올라오는 해설 카드 */
+  const [cardV, setCardV] = useState<number | null>(null);
+  const [cardHl, setCardHl] = useState(false);
   const [bgOpen, setBgOpen] = useState(false);
   useEffect(() => { setBgOpen(false); }, [book, chapter]);
   /* 📘 장 깊은 해설 */
@@ -88,9 +91,9 @@ export default function Reader({ index, data, active }: Props) {
   }, [page.nav, book, chapter]);
 
   // 장이 바뀌면 선택 해제
-  useEffect(() => { setSelected([]); setAnchor(null); setHlOpen(false); }, [book, chapter]);
+  useEffect(() => { setSelected([]); setAnchor(null); setHlOpen(false); setCardV(null); }, [book, chapter]);
   // 다른 페이지로 가면 선택 해제
-  useEffect(() => { if (!active) { setSelected([]); setHlOpen(false); } }, [active]);
+  useEffect(() => { if (!active) { setSelected([]); setHlOpen(false); setCardV(null); } }, [active]);
 
   /* ---------- 읽던 위치 자동 저장 ---------- */
   const saveTimer = useRef<number>();
@@ -131,7 +134,7 @@ export default function Reader({ index, data, active }: Props) {
   const animating = useRef(false);
   const swipedAt = useRef(0);
   const live = useRef({ book, chapter, swipe: settings.swipe, hasSel: false, neighbor, step });
-  live.current = { book, chapter, swipe: settings.swipe, hasSel: selected.length > 0, neighbor, step };
+  live.current = { book, chapter, swipe: settings.swipe, hasSel: selected.length > 0 || cardV !== null, neighbor, step };
 
   const setX = (x: number, dir: number, withGhost: boolean, transition = '') => {
     const sc = scrollRef.current, gh = ghostRef.current, w = pagerRef.current?.clientWidth ?? 360;
@@ -227,7 +230,7 @@ export default function Reader({ index, data, active }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------- 절 선택 (탭 = 선택/해제, 길게 누르기 = 범위 선택) ---------- */
+  /* ---------- 절 누르기: 짧게 = 해설 카드, 길게 = 범위 선택 시작 (그다음 누른 절까지 이어서) ---------- */
   const lp = useRef<{ timer?: number; fired: boolean; x: number; y: number }>({ fired: false, x: 0, y: 0 });
   const onVerseTouchStart = (v: number, e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -249,17 +252,26 @@ export default function Reader({ index, data, active }: Props) {
   const toggle = (v: number) => {
     if (lp.current.fired) { lp.current.fired = false; return; }
     if (Date.now() - swipedAt.current < 350) return; // 밀어 넘기는 중 실수로 눌린 것
-    setSelected(sel => (sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]));
-    setAnchor(v);
+    if (selected.length) {
+      // 범위 고르는 중: 처음 길게 누른 절 ~ 지금 누른 절
+      if (selected.length === 1 && selected[0] === v) { clearSel(); return; }
+      rangeTo(v);
+      return;
+    }
+    setCardHl(false);
+    setCardV(v);
   };
-  const selectRange = (v: number) => {
+  const rangeTo = (v: number) => {
     const a = anchor ?? v;
     const [s, e] = a < v ? [a, v] : [v, a];
-    setSelected(sel => {
-      const set = new Set(sel);
-      for (let i = s; i <= e; i++) set.add(i);
-      return [...set];
-    });
+    const r: number[] = [];
+    for (let i = s; i <= e; i++) r.push(i);
+    setSelected(r);
+  };
+  const selectRange = (v: number) => {
+    setCardV(null); setCardHl(false);
+    if (selected.length && anchor !== null) { rangeTo(v); return; }
+    setSelected([v]);
     setAnchor(v);
   };
 
@@ -269,7 +281,7 @@ export default function Reader({ index, data, active }: Props) {
   const auto = useAuto();
   const [atEnd, setAtEnd] = useState(false);
   useEffect(() => { setAtEnd(false); }, [book, chapter]);
-  const autoRun = active && auto.on && !auto.paused && !atEnd && !selected.length && !studyOpen && !chapOpen && !pickerOpen;
+  const autoRun = active && auto.on && !auto.paused && !atEnd && !selected.length && cardV === null && !studyOpen && !chapOpen && !pickerOpen;
   useEffect(() => {
     if (!autoRun) return;
     const el = scrollRef.current;
@@ -297,31 +309,55 @@ export default function Reader({ index, data, active }: Props) {
   useBackClose(active && selected.length > 0, clearSel);
 
   const copyOpts = { bookStyle: settings.copyBookStyle, refPosition: settings.copyRefPosition, verseNumbers: settings.copyVerseNumbers };
-  const doCopy = async () => {
-    const text = buildCopyText(data, book, chapter, selected, copyOpts);
+  /** vs: 대상 절, keep: 카드에서는 닫지 않음 */
+  const doCopy = async (vs = selected, keep = false) => {
+    const text = buildCopyText(data, book, chapter, vs, copyOpts);
     toast((await copyText(text)) ? '복사했습니다 📋' : '복사하지 못했습니다');
-    clearSel();
+    if (!keep) clearSel();
   };
-  const doShare = async () => {
-    const text = buildCopyText(data, book, chapter, selected, copyOpts);
-    const r = await shareText(text);
-    if (r === 'copied') toast('복사했습니다 📋');
-    clearSel();
+  const doBookmark = (vs = selected, keep = false) => {
+    const ok = addBookmark(book, chapter, vs);
+    toast(ok ? `북마크 추가: ${refLabel(book, chapter, vs, true)}` : '이미 북마크에 있습니다');
+    if (!keep) clearSel();
   };
-  const doBookmark = () => {
-    const ok = addBookmark(book, chapter, selected);
-    toast(ok ? `북마크 추가: ${refLabel(book, chapter, selected, true)}` : '이미 북마크에 있습니다');
-    clearSel();
-  };
-  const doMemorize = () => {
-    const ok = addMemory(book, chapter, selected);
+  const doMemorize = (vs = selected, keep = false) => {
+    const ok = addMemory(book, chapter, vs);
     toast(ok ? `암송 카드에 담았습니다 🧠 (북마크 → 암송)` : '이미 암송 카드에 있습니다');
-    clearSel();
+    if (!keep) clearSel();
   };
-  const doHighlight = (c: HlColor | null) => {
-    setHighlight(book, chapter, selected, c);
-    clearSel();
+  const doHighlight = (c: HlColor | null, vs = selected, keep = false) => {
+    setHighlight(book, chapter, vs, c);
+    if (!keep) clearSel(); else setCardHl(false);
   };
+
+  // 카드가 열리거나 다음 절로 바뀌면 그 절이 카드 위쪽에 보이게
+  useEffect(() => {
+    if (cardV === null) return;
+    const el = scrollRef.current;
+    const t = el?.querySelector<HTMLElement>(`[data-v="${cardV}"]`);
+    if (!el || !t) return;
+    const visTop = el.scrollTop, visBot = el.scrollTop + el.clientHeight * 0.36;
+    if (t.offsetTop < visTop + 4 || t.offsetTop + Math.min(t.offsetHeight, el.clientHeight * 0.3) > visBot) {
+      el.scrollTo({ top: Math.max(0, t.offsetTop - 12), behavior: 'smooth' });
+    }
+  }, [cardV]);
+  const shownSel = useMemo(() => (cardV !== null ? [cardV] : selected), [cardV, selected]);
+  const closeCard = () => { setCardV(null); setCardHl(false); };
+  const cardActions = cardV === null ? null : cardHl ? (
+    <div className="selbar-actions">
+      {HL_COLORS.map(c => <button key={c} className={'hl-swatch hl-' + c} onClick={() => doHighlight(c, [cardV], true)} aria-label={c} />)}
+      <button onClick={() => doHighlight(null, [cardV], true)}>지우기</button>
+      <button onClick={() => setCardHl(false)}>취소</button>
+    </div>
+  ) : (
+    <div className="selbar-actions">
+      <button onClick={() => doCopy([cardV], true)}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
+      <button onClick={() => doBookmark([cardV], true)}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
+      <button onClick={() => setCardHl(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
+      <button onClick={() => doMemorize([cardV], true)}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
+      <button onClick={closeCard}><Ico d="M6 6l12 12M18 6L6 18" />닫기</button>
+    </div>
+  );
 
   const sortedSel = [...selected].sort((a, b) => a - b);
   const chapUnit = isPsalm ? '편' : '장';
@@ -340,10 +376,10 @@ export default function Reader({ index, data, active }: Props) {
       </header>
 
       <div className="pager" ref={pagerRef}>
-        <div className="scroll" ref={scrollRef} onScroll={onScroll}>
+        <div className={'scroll' + (cardV !== null ? ' with-sheet' : '')} ref={scrollRef} onScroll={onScroll}>
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
-            selected={selected} flashV={flashV}
+            selected={shownSel} flashV={flashV}
             topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
@@ -369,7 +405,7 @@ export default function Reader({ index, data, active }: Props) {
         <div className="selbar">
           <div className="selbar-top">
             <span className="sel-label">{refLabel(book, chapter, sortedSel, true)}</span>
-            <span className="sel-hint">길게 누르면 범위 선택</span>
+            <span className="sel-hint">끝 절을 누르세요</span>
             <button className="x-btn" onClick={clearSel} aria-label="선택 해제">✕</button>
           </div>
           {hlOpen ? (
@@ -380,13 +416,12 @@ export default function Reader({ index, data, active }: Props) {
             </div>
           ) : (
             <div className="selbar-actions">
-              <button onClick={doCopy}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
-              <button onClick={doBookmark}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
+              <button onClick={() => doCopy()}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
+              <button onClick={() => doBookmark()}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
               <button onClick={() => setHlOpen(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
               <button onClick={() => { setStudyTab('xref'); setStudyOpen(sortedSel); clearSel(); }}><Ico d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />관련 구절</button>
               <button onClick={() => { setStudyTab('explain'); setStudyOpen(sortedSel); clearSel(); }}><Ico d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />해설</button>
-              <button onClick={doMemorize}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
-              <button onClick={doShare}><Ico d="M12 3v13M7 8l5-5 5 5M5 14v7h14v-7" />공유</button>
+              <button onClick={() => doMemorize()}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
             </div>
           )}
         </div>
@@ -413,6 +448,15 @@ export default function Reader({ index, data, active }: Props) {
           </>}
           <button className="ab-x" onClick={() => setAuto({ on: false })} aria-label="자동 스크롤 끄기">✕</button>
         </div>
+      )}
+
+      {cardV !== null && (
+        <StudyView data={data} book={book} chapter={chapter} verses={[cardV]} page={index} onClose={closeCard}
+          sheet={{
+            actions: cardActions,
+            onPrev: cardV > 1 ? () => { setCardHl(false); setCardV(cardV - 1); } : undefined,
+            onNext: cardV < verses.length ? () => { setCardHl(false); setCardV(cardV + 1); } : undefined,
+          }} />
       )}
 
       {studyOpen && (

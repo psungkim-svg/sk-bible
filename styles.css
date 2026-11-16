@@ -898,3 +898,29 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 .easy-list li { margin: 3px 0; text-align: left; overflow-wrap: anywhere; }
 .easy-src { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: var(--bg2); color: var(--muted); font-size: .74em; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
 .src-line { margin-top: 10px; color: var(--muted); }
+
+/* ================= v1.13 절 해설 카드 (아래에서 올라옴) ================= */
+.vsheet {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 62%; z-index: 15;
+  display: flex; flex-direction: column; background: var(--card);
+  border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .22); animation: sheetUp .2s ease-out;
+  transition: height .2s ease;
+}
+.vsheet.tall { height: 92%; }
+@keyframes sheetUp { from { transform: translateY(40%); opacity: .4; } }
+.vs-grip { display: flex; justify-content: center; padding: 6px 0 2px; width: 100%; }
+.vs-grip span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
+.vs-acts { padding: 0 8px 4px; }
+.vs-acts .selbar-actions > button { height: 50px; }
+.vs-nav { display: flex; align-items: center; gap: 6px; padding: 2px 8px; }
+.vs-nav b { flex: 1; text-align: center; color: var(--accent); font-size: var(--menu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-nav button { padding: 6px 10px; border-radius: 10px; background: var(--bg2); font-size: var(--menu); font-weight: 600; white-space: nowrap; }
+.vs-nav button:disabled { opacity: .35; }
+.vsheet .study-tabs { position: static; margin: 6px 8px; }
+.vs-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.vs-scroll .study-body { padding: 2px 8px 30px; }
+.scroll.with-sheet { padding-bottom: 62vh; }
+.vs-acts .selbar-actions { flex-wrap: nowrap; gap: 4px; }
+.vs-acts .selbar-actions > button { flex: 1 1 0; min-width: 0; height: 48px; font-size: min(var(--menu), 4vw); letter-spacing: -.5px; white-space: nowrap; }
+.vs-acts .hl-swatch { flex: 0 0 40px !important; height: 40px !important; }
