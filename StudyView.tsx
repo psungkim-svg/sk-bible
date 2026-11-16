@@ -71,14 +71,17 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
       <DwellCtx.Provider value={1000}>
         <div className={'vsheet' + (tall ? ' tall' : '')}>
           <button className="vs-grip" onClick={() => setTall(t => !t)} aria-label={tall ? '카드 줄이기' : '카드 늘리기'}><span /></button>
-          <div className="vs-acts">{sheet.actions}</div>
-          <div className="vs-nav">
-            <button onClick={sheet.onPrev} disabled={!sheet.onPrev}>‹ 이전 절</button>
-            <b>{label}</b>
-            <button onClick={sheet.onNext} disabled={!sheet.onNext}>다음 절 ›</button>
-          </div>
-          {tabs}
           <div className="vs-scroll">{body}</div>
+          {/* 복사 · 이전 절 · 탭은 카드 아래쪽에 (엄지로 누르기 쉽게) */}
+          <div className="vs-bar">
+            <div className="vs-acts">{sheet.actions}</div>
+            <div className="vs-nav">
+              <button onClick={sheet.onPrev} disabled={!sheet.onPrev}>‹ 이전 절</button>
+              <b>{label}</b>
+              <button onClick={sheet.onNext} disabled={!sheet.onNext}>다음 절 ›</button>
+            </div>
+            {tabs}
+          </div>
         </div>
       </DwellCtx.Provider>
     );

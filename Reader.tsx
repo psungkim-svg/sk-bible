@@ -336,8 +336,8 @@ export default function Reader({ index, data, active }: Props) {
     const el = scrollRef.current;
     const t = el?.querySelector<HTMLElement>(`[data-v="${cardV}"]`);
     if (!el || !t) return;
-    const visTop = el.scrollTop, visBot = el.scrollTop + el.clientHeight * 0.36;
-    if (t.offsetTop < visTop + 4 || t.offsetTop + Math.min(t.offsetHeight, el.clientHeight * 0.3) > visBot) {
+    const visTop = el.scrollTop, visBot = el.scrollTop + el.clientHeight * 0.28;
+    if (t.offsetTop < visTop + 4 || t.offsetTop + Math.min(t.offsetHeight, el.clientHeight * 0.2) > visBot) {
       el.scrollTo({ top: Math.max(0, t.offsetTop - 12), behavior: 'smooth' });
     }
   }, [cardV]);
@@ -351,11 +351,11 @@ export default function Reader({ index, data, active }: Props) {
     </div>
   ) : (
     <div className="selbar-actions">
-      <button onClick={() => doCopy([cardV], true)}><Ico d="M8 8h11v13H8zM5 16V3h11" />복사</button>
-      <button onClick={() => doBookmark([cardV], true)}><Ico d="M6 3h12v18l-6-5-6 5z" />북마크</button>
-      <button onClick={() => setCardHl(true)}><Ico d="M4 20h7M14 4l6 6-9 9H5v-6z" />형광펜</button>
-      <button onClick={() => doMemorize([cardV], true)}><Ico d="M4 5h16v12H4zM8 21h8M12 17v4M8 10h8M8 13h5" />암송</button>
-      <button onClick={closeCard}><Ico d="M6 6l12 12M18 6L6 18" />닫기</button>
+      <button onClick={() => doCopy([cardV], true)}>복사</button>
+      <button onClick={() => doBookmark([cardV], true)}>북마크</button>
+      <button onClick={() => setCardHl(true)}>형광펜</button>
+      <button onClick={() => doMemorize([cardV], true)}>암송</button>
+      <button onClick={closeCard}>닫기</button>
     </div>
   );
 
