@@ -83,6 +83,9 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.2.1', [
+    '🌙 어두운 화면 해설 카드를 짙은 남색으로 (본문 검정과 구별)',
+  ]],
   ['1.2.0', [
     '📍 배경 ▸ · 📘 장 깊은 해설 ▸ 을 장 맨 위 한 줄에',
     '🌙 어두운 화면에서 해설 카드가 본문과 확실히 구별되게',
