@@ -44,12 +44,10 @@ export default function Reader({ index, data, active }: Props) {
   /* 📘 장 깊은 해설 */
   const [chapOpen, setChapOpen] = useState(false);
   const showWords = settings.showWords;
+  const openChap = useMemo(() => () => setChapOpen(true), []);
   // 장 맨 위: (1장이면) 책 소개 + "📜 배경"을 누르면 펼쳐지는 배경 카드
   const topSlot = useMemo<ReactNode>(() => (
     <>
-      <div className="chap-tools">
-        <button className="ct-btn" onClick={() => setChapOpen(true)}>📘 장 깊은 해설</button>
-      </div>
       {chapter === 1 && <BookIntro data={data} book={book} compact onGo={(c, v) => goTo(index, { book, chapter: c, verse: v ?? 1 })} />}
       {bgOpen && <BackgroundCard data={data} book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
       {showWords && <WordBox book={book} chapter={chapter} onVerse={v => goTo(index, { book, chapter, verse: v })} />}
@@ -380,7 +378,7 @@ export default function Reader({ index, data, active }: Props) {
           <ChapterBody
             data={data} book={book} chapter={chapter} highlights={highlights} bookmarked={bookmarked}
             selected={shownSel} flashV={flashV}
-            topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
+            topSlot={topSlot} bgOpen={bgOpen} onTopicClick={() => setBgOpen(o => !o)} onChapStudy={openChap} showHeadings={settings.showHeadings} showTopic={settings.showTopic}
             handlers={{
               onClick: toggle,
               onTouchStart: onVerseTouchStart,
@@ -492,6 +490,7 @@ interface BodyProps {
   topSlot?: ReactNode;
   bgOpen?: boolean;
   onTopicClick?: () => void;
+  onChapStudy?: () => void;
   showHeadings?: boolean;
   showTopic?: boolean;
   handlers?: {
@@ -504,7 +503,7 @@ interface BodyProps {
 }
 
 /** 한 장의 본문 (지금 장 + 밀 때 옆에서 따라 들어오는 장) */
-const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topSlot, bgOpen, onTopicClick, showHeadings, showTopic, handlers: h }: BodyProps) {
+const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights, bookmarked, selected = [], flashV, limit, topSlot, bgOpen, onTopicClick, onChapStudy, showHeadings, showTopic, handlers: h }: BodyProps) {
   const all = data[book]?.[chapter - 1] ?? [];
   const verses = limit ? all.slice(0, limit) : all;
   const headAt = new Map<number, Head[]>();
@@ -512,8 +511,18 @@ const ChapterBody = memo(function ChapterBody({ data, book, chapter, highlights,
   return (
     <>
       <h2 className="chap-title">{BOOKS[book].name} {chapter}{book === 18 ? '편' : '장'}</h2>
-      {showTopic && onTopicClick && (
-        <button className={'chap-topic tap' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>{chapter === 1 || data[book].length === 1 ? <>📜 {BOOKS[book].name} 전체의 배경</> : <>📍 {chapter}{book === 18 ? '편' : '장'}의 배경</>}<span className="topic-more">보기 <Chev open={!!bgOpen} /></span></button>
+      {onTopicClick && (
+        /* 한 줄: 📍 배경 ▸ · 📘 장 깊은 해설 ▸ */
+        <div className="chap-row">
+          {showTopic && (
+            <button className={'cr-btn' + (bgOpen ? ' open' : '')} onClick={onTopicClick}>
+              <span className="cr-t">{chapter === 1 || data[book].length === 1 ? '📜 책 전체 배경' : `📍 ${chapter}${book === 18 ? '편' : '장'}의 배경`}</span><Chev open={!!bgOpen} />
+            </button>
+          )}
+          {onChapStudy && (
+            <button className="cr-btn" onClick={onChapStudy}><span className="cr-t">📘 장 깊은 해설</span><Chev open={false} /></button>
+          )}
+        </div>
       )}
       {topSlot}
       <div className="verses">

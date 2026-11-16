@@ -249,8 +249,8 @@ export default function SettingsView({ active }: { active: boolean }) {
           </div>
           <details className="changelog">
             <summary>업데이트 내역</summary>
-            {CHANGELOG.map(([v, items]) => (
-              <div key={v}><b>v{v}</b><ul>{items.map(t => <li key={t}>{t}</li>)}</ul></div>
+            {CHANGELOG.map(([v, items], i) => (
+              <div key={i}><b>v{v}</b><ul>{items.map(t => <li key={t}>{t}</li>)}</ul></div>
             ))}
           </details>
           <p className="desc small">성경전서 개역개정판 (개인 사용)</p>
