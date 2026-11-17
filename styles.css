@@ -946,3 +946,18 @@ button.chap-topic.tap { display: block; width: calc(100% - 8px); text-align: lef
 [data-theme="dark"] .vs-acts .selbar-actions > button, [data-theme="dark"] .vs-nav button { background: #2b3d63; }
 [data-theme="dark"] .vsheet .study-tabs { background: #141d33; }
 [data-theme="dark"] .vsheet .study-tabs button.on { background: #2b3d63; }
+/* 🔍 지도 확대 · 축소 */
+.geo-wrap { position: relative; }
+.geo-map { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.geo-map.zoomed { touch-action: none; }
+.geo-zoom { position: absolute; top: 12px; right: 6px; display: flex; flex-direction: column; gap: 5px; }
+.geo-zoom button { width: 34px; height: 34px; border-radius: 9px; background: var(--card); color: var(--text); border: 1px solid var(--line); font-size: 22px; font-weight: 700; line-height: 1; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
+.geo-zoom button:disabled { opacity: .35; }
+.geo-modern { font-size: 12px; font-weight: 700; fill: var(--map-txt); opacity: .6; paint-order: stroke; stroke: var(--map-halo); stroke-width: 2.6px; stroke-linejoin: round; letter-spacing: 1px; font-family: var(--sans); pointer-events: none; }
+.geo-modern.sea { font-style: italic; font-weight: 600; fill: #3d6f99; opacity: .8; }
+[data-theme="dark"] .geo-modern.sea { fill: #7fb0dc; }
+/* 두 손가락 글자 크기: 브라우저 확대 대신 글자만 */
+html, body { touch-action: pan-x pan-y; }
+.fs-badge { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 30; pointer-events: none;
+  background: rgba(0, 0, 0, .72); color: #fff; padding: 10px 18px; border-radius: 14px; font-size: 20px; font-weight: 600; white-space: nowrap; }
+.fs-badge b { font-size: 30px; margin: 0 2px 0 6px; color: #ffcb05; }

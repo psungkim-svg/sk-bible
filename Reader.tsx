@@ -228,6 +228,55 @@ export default function Reader({ index, data, active }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---------- 두 손가락으로 글자 크기 (화면 전체가 커지지 않고 글자만 커져서 줄이 다시 맞춰짐) ---------- */
+  const [fsBadge, setFsBadge] = useState(false);
+  const pinchAnchor = useRef<{ el: HTMLElement; off: number } | null>(null);
+  const fsLive = useRef(settings.fontSize);
+  fsLive.current = settings.fontSize;
+  useEffect(() => {
+    const el = pagerRef.current;
+    if (!el) return;
+    let d0 = 0, fs0 = 0, on = false, hideT = 0;
+    const dist = (e: TouchEvent) => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) || 1;
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      on = true; d0 = dist(e); fs0 = fsLive.current;
+      // 밀어 넘기던 중이면 제자리로
+      setX(0, 1, true, ''); setGhost(null);
+      // 두 손가락 가운데에 있던 절이 그 자리에 머물게
+      const sc = scrollRef.current;
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2, my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const v = (document.elementFromPoint(mx, my) as HTMLElement | null)?.closest<HTMLElement>('[data-v]');
+      pinchAnchor.current = sc && v ? { el: v, off: v.offsetTop - sc.scrollTop } : null;
+      clearTimeout(hideT); setFsBadge(true);
+      e.preventDefault();
+    };
+    const move = (e: TouchEvent) => {
+      if (!on || e.touches.length !== 2) return;
+      e.preventDefault();
+      const fs = Math.min(40, Math.max(13, Math.round(fs0 * Math.pow(dist(e) / d0, 0.6))));
+      if (fs !== fsLive.current) setSettings({ fontSize: fs });
+    };
+    const end = (e: TouchEvent) => {
+      if (!on || e.touches.length >= 2) return;
+      on = false;
+      hideT = window.setTimeout(() => { setFsBadge(false); pinchAnchor.current = null; }, 900);
+    };
+    el.addEventListener('touchstart', start, { passive: false });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+    return () => {
+      el.removeEventListener('touchstart', start); el.removeEventListener('touchmove', move);
+      el.removeEventListener('touchend', end); el.removeEventListener('touchcancel', end); clearTimeout(hideT);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const a = pinchAnchor.current, sc = scrollRef.current;
+    if (a && sc && a.el.isConnected) sc.scrollTop = a.el.offsetTop - a.off;
+  }, [settings.fontSize]);
+
   /* ---------- 절 누르기: 짧게 = 해설 카드, 길게 = 범위 선택 시작 (그다음 누른 절까지 이어서) ---------- */
   const lp = useRef<{ timer?: number; fired: boolean; x: number; y: number }>({ fired: false, x: 0, y: 0 });
   const onVerseTouchStart = (v: number, e: React.TouchEvent) => {
@@ -447,6 +496,8 @@ export default function Reader({ index, data, active }: Props) {
           <button className="ab-x" onClick={() => setAuto({ on: false })} aria-label="자동 스크롤 끄기">✕</button>
         </div>
       )}
+
+      {fsBadge && <div className="fs-badge">글자 크기 <b>{settings.fontSize}</b>pt</div>}
 
       {cardV !== null && (
         <StudyView data={data} book={book} chapter={chapter} verses={[cardV]} page={index} onClose={closeCard}
