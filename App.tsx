@@ -3,7 +3,7 @@ import { applyUpdate, subscribeUpdate, updateReady, updateVersion } from './pwa'
 import { BibleData, loadBible } from './bible';
 import { BOOKS } from './books';
 import BookmarksView from './BookmarksView';
-import Reader from './Reader';
+import Reader from './ReaderPage';   // v1.3.5: 새 이름 (GitHub에 Reader.tsx가 안 바뀌는 문제를 피하려고)
 import SearchView from './SearchView';
 import SettingsView from './SettingsView';
 import ReadingView from './ReadingView';

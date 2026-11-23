@@ -83,6 +83,9 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.3.5', [
+    '🔧 장 맨 위(📝 읽기 전 요약 · 장 전체 더 알아보기)와 형광펜 한 가지가 화면에 안 나오던 문제 고침 — 화면 파일 이름을 새로 바꿈 (ReaderPage.tsx · ChapterTop.tsx)',
+  ]],
   ['1.3.4', [
     '💡 쉬운 풀이가 자주 "풀이 준비 중"으로 뜨던 문제 고침 (AI 답 모양이 달라도 받고, 안 되면 한 번 더)',
     '📝 읽기 전 요약에서 낱말 뜻 · 번역 · 사본 설명 같은 문장은 빼고 흐름만',

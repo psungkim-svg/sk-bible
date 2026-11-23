@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { BibleData, parseRef, Ref, refLabel } from './bible';
 import { BOOKS } from './books';
 import { useBackClose } from './utils';
-import { BookIntro } from './ChapterInfo';
+import { BookIntro } from './ChapterTop';
 
 interface Props {
   data: BibleData;
