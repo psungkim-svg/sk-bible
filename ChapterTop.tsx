@@ -5,6 +5,7 @@ import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
 import { askBookBg, askBookIntro, askChapBg, askChapSum, BgAi, BiAi, BiPart, cacheGet, NS, SumAi } from './study';
 import { getHeads } from './headings';
+import { setSettings, useStore } from './store';
 import { bookDict, DictData, isPlaceTerm, loadDictGeo } from './dict';
 import { DictList } from './Words';
 import type { GeoData } from './geo';
@@ -181,12 +182,14 @@ export function BookIntro({ data, book, compact, onGo }: { data: BibleData; book
 /** 📝 읽기 전 요약 — 1절 바로 위. 장을 1.5초 넘게 펴 두었을 때만 AI로 만듦 (넘겨 보기만 할 때는 안 씀) */
 export function ChapSummary({ book, chapter, active }: { book: number; chapter: number; active: boolean }) {
   const key = `${book}.${chapter}`;
+  // v1.3.6 접었다 폈다 (마지막 상태를 기억해 모든 장에 같이 · 접어 두면 AI도 부르지 않음)
+  const open = useStore(s => s.settings.sumOpen ?? true);
   const [st, setSt] = useState<{ v?: SumAi; state: 'idle' | 'loading' | 'error'; err?: string }>(() => ({ v: cacheGet<SumAi>(NS.sum, key), state: 'idle' }));
   useEffect(() => {
     const hit = cacheGet<SumAi>(NS.sum, key);
     if (hit) { setSt({ v: hit, state: 'idle' }); return; }
     setSt({ state: 'idle' });
-    if (!active || !navigator.onLine) return;
+    if (!active || !open || !navigator.onLine) return;
     const ctl = new AbortController();
     const t = setTimeout(() => {
       setSt({ state: 'loading' });
@@ -195,19 +198,25 @@ export function ChapSummary({ book, chapter, active }: { book: number; chapter: 
         .catch(e => { if (!ctl.signal.aborted) setSt({ state: 'error', err: (e as Error).message }); });
     }, 1500);
     return () => { clearTimeout(t); ctl.abort(); };
-  }, [key, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, active, open]); // eslint-disable-line react-hooks/exhaustive-deps
   const heads = getHeads(book, chapter);
   const ok = st.v && st.v.pts.length > 0;
   return (
-    <div className="sum-box">
-      <div className="sum-h">📝 읽기 전 요약{ok && st.v?.who && <span className="sum-src">{st.v.who.replace(/\s*(주석|스터디 노트)$/, '')}</span>}</div>
-      {ok && <PtList pts={st.v!.pts} />}
-      {!ok && st.state === 'loading' && <div className="busy" style={{ padding: '2px 0' }}><div className="spinner small" /> 요약 준비 중…</div>}
-      {/* 요약이 아직 없으면(인터넷 없음 · 준비 중 · 자료 없음) 개역개정 소제목으로 흐름만 */}
-      {!ok && st.state !== 'loading' && (heads.length > 0
-        ? <p className="sum-flow"><span className="muted">흐름 · </span>{heads.map((h, i) => <span key={i}>{i > 0 && ' → '}<b>{h.v}절</b> {h.title}</span>)}</p>
-        : <p className="desc muted">풀이 준비 중</p>)}
-      {!ok && st.state === 'error' && /한도|다 썼/.test(st.err || '') && <p className="desc small muted">{st.err}</p>}
+    <div className={'sum-box' + (open ? '' : ' closed')}>
+      <button className="sum-h" onClick={() => setSettings({ sumOpen: !open })} aria-expanded={open}>
+        <span>📝 읽기 전 요약</span>
+        {open && ok && st.v?.who && <span className="sum-src">{st.v.who.replace(/\s*(주석|스터디 노트)$/, '')}</span>}
+        <span className="sum-arrow"><Chev open={open} /></span>
+      </button>
+      {open && <>
+        {ok && <PtList pts={st.v!.pts} />}
+        {!ok && st.state === 'loading' && <div className="busy" style={{ padding: '2px 0' }}><div className="spinner small" /> 요약 준비 중…</div>}
+        {/* 요약이 아직 없으면(인터넷 없음 · 준비 중 · 자료 없음) 개역개정 소제목으로 흐름만 */}
+        {!ok && st.state !== 'loading' && (heads.length > 0
+          ? <p className="sum-flow"><span className="muted">흐름 · </span>{heads.map((h, i) => <span key={i}>{i > 0 && ' → '}<b>{h.v}절</b> {h.title}</span>)}</p>
+          : <p className="desc muted">풀이 준비 중</p>)}
+        {!ok && st.state === 'error' && /한도|다 썼/.test(st.err || '') && <p className="desc small muted">{st.err}</p>}
+      </>}
     </div>
   );
 }

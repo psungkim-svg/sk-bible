@@ -83,6 +83,9 @@ export function formatBuildTime(iso: string) {
 }
 
 export const CHANGELOG: [string, string[]][] = [
+  ['1.3.6', [
+    '📝 읽기 전 요약을 접었다 폈다 — 제목을 누르면 접히고, 마지막 상태를 기억해 다른 장에서도 같게 (접어 두면 AI도 부르지 않음)',
+  ]],
   ['1.3.5', [
     '🔧 장 맨 위(📝 읽기 전 요약 · 장 전체 더 알아보기)와 형광펜 한 가지가 화면에 안 나오던 문제 고침 — 화면 파일 이름을 새로 바꿈 (ReaderPage.tsx · ChapterTop.tsx)',
   ]],

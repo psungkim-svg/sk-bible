@@ -1015,3 +1015,11 @@ html, body { touch-action: pan-x pan-y; }
 .plain-box .plain-none { margin: 4px 0 2px; }
 .plain-box .why-row { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--line); }
 .plain-box .why-h { font-weight: 700; color: var(--accent); font-size: var(--menu); }
+
+/* v1.3.6 📝 읽기 전 요약 접기·펴기 */
+button.sum-h { width: 100%; padding: 0; background: none; border: 0; text-align: left; cursor: pointer; }
+.sum-h .sum-src { margin-left: auto; }
+.sum-h .sum-arrow { flex: none; display: inline-flex; align-items: center; margin-left: 6px; color: var(--accent); font-size: .85em; }
+.sum-h > span:first-child + .sum-arrow { margin-left: auto; }
+.sum-box.closed { padding-bottom: 8px; }
+.sum-box.closed .sum-h { margin-bottom: 0; }

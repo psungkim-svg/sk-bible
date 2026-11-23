@@ -61,6 +61,7 @@ export interface Settings {
   scrollSpeed: number;        // ⏬ 자동 스크롤 속도 1~10
   showWords: boolean;         // v1.10 장 맨 위 "📖 지명·낱말 풀이" 상자
   wordsOpen: boolean;         // 그 상자를 펼쳐 둘지 (마지막 상태 기억)
+  sumOpen: boolean;           // v1.3.6 📝 읽기 전 요약을 펼쳐 둘지 (마지막 상태 기억 · 모든 장에 같이)
 }
 
 export type SearchMode = 'word' | 'sentence';
@@ -129,6 +130,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showOrig: false,
   showWords: true,
   wordsOpen: false,
+  sumOpen: true,
 };
 
 const KEY = 'sk-bible-v1';
