@@ -23,7 +23,7 @@ const LIMIT: Record<string, number> = {
   'sk-ai-who-v1': 3000,
 };
 /** v1.8.3: 길고 장황했던 예전 해설 — 앱이 켜질 때 지워서 공간 확보 (새로 열면 짧은 해설을 다시 받음) */
-const RETIRED = ['sk-ai-verse-v4', 'sk-ai-vextra-v1', 'sk-ai-chap-v1', 'sk-topic-v2', 'sk-ai-bg-v1',
+const RETIRED = ['sk-ai-sum-v1', 'sk-ai-verse-v4', 'sk-ai-vextra-v1', 'sk-ai-chap-v1', 'sk-topic-v2', 'sk-ai-bg-v1',
   // v1.9: AI가 지어 쓰던 해설·장 주제·단락 요약은 지우고, 주석 원문 번역으로 새로 받음
   'sk-ai-verse-v5', 'sk-ai-vextra-v2', 'sk-ai-chap-v2', 'sk-topic-v3', 'sk-ai-bg-v2', 'sk-ai-find-v1', 'sk-ai-bg-v3',
   // v1.9.6: 단락 요약 없앰

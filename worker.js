@@ -306,7 +306,7 @@ const PLAIN_PROMPT = `Reasoning: low
 당신은 성경 주석 문장들을 중학생도 알아듣게 풀어 주는 편집자입니다.
 아래 '문장들'은 실제 주석에서 원문 확인을 거친 문장과 그 번역입니다. 문장마다 [S번호]와 주석 이름이 붙어 있습니다.
 할 일 두 가지 (이 문장들에 있는 내용만 가지고):
-1) plain — 이 구절이 무슨 뜻인지 2~3문장으로 쉽게 풀이합니다. 이어서 읽으면 한 단락이 되게 씁니다.
+1) plain — 이 구절이 무슨 뜻인지 2~3문장으로 쉽게 풀이합니다. 문장 하나마다 배열의 원소 하나로 따로 적습니다 (이어서 읽으면 한 단락이 되게).
 2) why — 이 구절이 왜 중요한가를 1문장으로 씁니다. 이 구절이 그 책이나 성경 전체의 흐름·가르침 안에서 맡는 역할(예: 무엇의 시작인지, 무엇을 처음 보여 주는지, 어떤 약속과 이어지는지)입니다. 문장들에 그런 내용이 없으면 "why": null.
 반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
 {"plain":[{"ko":"쉬운 한국어 문장","src":["S1","S3"]}],"why":{"ko":"한 문장","src":["S2"]}}
@@ -560,16 +560,31 @@ async function doPlain(env, body) {
   if (pts.length < 2) return { plain: [], why: null };
   const ids = new Map(pts.map(p => [p.id, p]));
   const ask = `본문: ${q}\n\n문장들:\n${pts.map(p => `[${p.id}] (${p.who}) ${p.ko}\n    원문: ${p.en}`).join('\n')}`;
-  const out = await runLLM(env, PLAIN_PROMPT, ask, { max_tokens: 4000 });
+  const srcOf = v => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\s]+/) : [])
+    .map(x => String(x).replace(/[\[\]\s]/g, '').toUpperCase()).filter(x => ids.has(x));
   const one = l => {
-    const ko = clip(l?.ko, 240).trim();
-    const src = [...new Set((Array.isArray(l?.src) ? l.src : []).map(x => String(x).replace(/[\[\]\s]/g, '')))].filter(x => ids.has(x));
+    const ko = clip(l?.ko ?? l?.text, 400).trim();
+    const src = [...new Set(srcOf(l?.src ?? l?.sources))];
     if (!ko || !/[가-힣]/.test(ko) || !src.length || BAN_KO.test(ko)) return null;
     return { ko, who: [...new Set(src.map(x => ids.get(x).who))], src };
   };
-  const plain = (Array.isArray(out?.plain) ? out.plain : []).slice(0, 5).map(one).filter(Boolean).slice(0, 3);
-  if (plain.length < 2) return { plain: [], why: null };   // 근거가 모자라면 "풀이 준비 중"
-  const why = out?.why ? one(out.why) : null;
+  // AI가 plain 을 배열 대신 한 단락(문자열 · 객체 하나)으로 줄 때도 받기 (v1.3.4: 이것 때문에 "풀이 준비 중"이 자주 떴음)
+  const lines = o => {
+    const v = o?.plain ?? o?.lines;
+    const arr = Array.isArray(v) ? v : typeof v === 'string' ? [{ ko: v, src: o?.src ?? o?.plain_src }] : v && typeof v === 'object' ? [v] : [];
+    return arr.slice(0, 6).map(x => (typeof x === 'string' ? one({ ko: x, src: o?.src }) : one(x))).filter(Boolean).slice(0, 3);
+  };
+  const enough = ls => ls.length >= 2 || (ls.length === 1 && (ls[0].ko.match(/[.!?](\s|$)/g) || []).length >= 2);
+  let out = await runLLM(env, PLAIN_PROMPT, ask, { max_tokens: 4000 });
+  let plain = lines(out);
+  if (!enough(plain)) {   // 한 번만 다시 (형식을 다시 일러 줌)
+    out = await runLLM(env, PLAIN_PROMPT, ask + '\n\n(주의: plain 은 반드시 배열이고, 문장 하나마다 {"ko":..., "src":["S번호"]} 를 따로 적으세요. 2~3개. "~해야 합니다" 같은 말은 쓰지 마세요.)', { max_tokens: 4000 });
+    plain = lines(out);
+  }
+  if (!enough(plain)) return { plain: [], why: null };   // 근거가 모자라면 "풀이 준비 중"
+  let why = out?.why;
+  if (Array.isArray(why)) why = why[0];
+  why = why && typeof why === 'object' ? one(why) : null;
   return { plain, why };
 }
 
@@ -585,7 +600,8 @@ async function handleAsk(request, env) {
     /* ---- v1.9 근거 있는 해설 ---- */
     if (body.step === 'extract') {
       // v1.4 📝 읽기 전 요약(s|책.장)은 장마다 한 번만 만들고 모두가 같이 쓰므로 하루 한도에서 뺌
-      return grounded(env, request, `x|${clip(body.ck, 160)}`, () => doExtract(env, body), r => r.items.length > 0, { free: /^s\|\d+\.\d+$/.test(clip(body.ck, 40)) });
+      const isSum = /^s2\|\d+\.\d+$/.test(clip(body.ck, 40));
+      return grounded(env, request, `x|${clip(body.ck, 160)}`, async () => { const r = await doExtract(env, body); return isSum ? sumFilter(r) : r; }, r => r.items.length > 0, { free: isSum });
     }
     if (body.step === 'gqa') {
       if (!srcList(body.sources).length) return json({ qa: [], debates: [] });
@@ -610,7 +626,7 @@ async function handleAsk(request, env) {
     }
     if (body.step === 'plain') {
       if (easyPts(body.pts).length < 2) return json({ plain: [], why: null });
-      return grounded(env, request, `${clip(body.ck, 160)}`, () => doPlain(env, body), r => r.plain.length >= 2, { free: true });
+      return grounded(env, request, `${clip(body.ck, 160)}`, () => doPlain(env, body), r => r.plain.length >= 1, { free: true });
     }
     if (body.step === 'easy') {
       if (easyPts(body.pts).length < 2) return json({ lines: [] });
@@ -1030,9 +1046,13 @@ const deepKeys = (b, c) => [keyOf(`q|c|${b}.${c}`), `d:${b}.${c}`];
 const lightDone = (has, b, c) => has.has(`g:${b}.${c}`);
 const deepDone = (has, b, c) => has.has(keyOf(`q|c|${b}.${c}`)) || has.has(`d:${b}.${c}`);
 
-/* ---- v1.4 📝 읽기 전 요약 (앱 study.ts 의 askChapSum / sumFocus 와 같게 · 키 x|s|책.장) ---- */
-const sumKeys = (b, c) => [keyOf(`x|s|${b}.${c}`), `s:${b}.${c}`];
-const sumDone = (has, b, c) => has.has(keyOf(`x|s|${b}.${c}`)) || has.has(`s:${b}.${c}`);
+/* ---- v1.4 📝 읽기 전 요약 (앱 study.ts 의 askChapSum / sumFocus 와 같게 · 키 x|s2|책.장) ----
+   v1.3.4: 틴데일 노트에는 낱말·번역·사본 설명이 많아서, 그런 문장은 요약에서 뺌 (흐름만 남김) */
+const SUM_TECH = /\b(literally|Greek|Hebrew|Aramaic|Septuagint|manuscripts?|could (refer|mean)|might (refer|mean|indicate)|may (refer|mean)|interpreters?|scholars?|translated|translation|the term|the word|this phrase|preposition|cp\.|see study note)\b/i;
+function sumFilter(r) { return { ...r, items: (r.items || []).filter(x => !SUM_TECH.test(x.en || '')).slice(0, 3) }; }
+const sumKeys = (b, c) => [keyOf(`x|s2|${b}.${c}`), `s2:${b}.${c}`];
+const sumDone = (has, b, c) => has.has(keyOf(`x|s2|${b}.${c}`)) || has.has(`s2:${b}.${c}`);
+const SUM_FOCUS_TAIL = '처음부터 끝까지 고르게. 사건·내용·흐름을 말하는 문장만. 낱말 뜻 · 번역 · 원어 · 사본 · 학자들 견해 · 해석 논쟁 · 교훈 · 적용 문장은 고르지 말 것';
 const SUM_SRC_W = [['tyndale', '틴데일 스터디 노트'], ['jamieson-fausset-brown', 'JFB 주석']];
 async function cronSum(env, st, b, c) {
   const ck = `${b}.${c}`;
@@ -1043,22 +1063,22 @@ async function cronSum(env, st, b, c) {
     const text = Array.isArray(j?.chapter?.content) ? cronExcerpt(j.chapter.content, 6000) : '';
     if (text.length > 200) { src = { who: name, text }; break; }
   }
-  if (!src) { await markPre(env, `s:${ck}`, 1); return true; }   // 자료 없음 → 앱은 소제목 흐름만
+  if (!src) { await markPre(env, `s2:${ck}`, 1); return true; }   // 자료 없음 → 앱은 소제목 흐름만
   const unit = b === 18 ? '편' : '장';
   const { heads } = await bsbChapter(b, c);
   const hs = heads.map(h => h.replace(/^\d+절 /, '')).join(', ');
   st.calls++;
-  const r = await doExtract(env, {
-    style: 'easy', who: src.who, source: src.text, n: '2~3', max: 3,
-    focus: `${KO_NAME[b]} ${c}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${hs ? ' (흐름: ' + hs + ')' : ''}. 처음부터 끝까지 고르게. 해석 논쟁 · 교훈 · 적용 · 원어 설명 문장은 고르지 말 것`,
-  });
-  if (r.items.length) await sharedPut(env, keyOf(`x|s|${ck}`), r);
-  else await markPre(env, `s:${ck}`, 2);
+  const r = sumFilter(await doExtract(env, {
+    style: 'easy', who: src.who, source: src.text, n: '2~4', max: 4,
+    focus: `${KO_NAME[b]} ${c}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${hs ? ' (흐름: ' + hs + ')' : ''}. ${SUM_FOCUS_TAIL}`,
+  }));
+  if (r.items.length) await sharedPut(env, keyOf(`x|s2|${ck}`), r);
+  else await markPre(env, `s2:${ck}`, 2);
   return true;
 }
 async function sumSafe(env, st, [b, c]) {
   const r = await soft(st, `sum ${b}.${c}`, () => cronSum(env, st, b, c));
-  if (r === 'fail') await markPre(env, `s:${b}.${c}`, 2);
+  if (r === 'fail') await markPre(env, `s2:${b}.${c}`, 2);
   sumKeys(b, c).forEach(k => st.has.add(k));
 }
 

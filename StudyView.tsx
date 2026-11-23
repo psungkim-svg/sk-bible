@@ -267,7 +267,7 @@ export function PlainBox({ ekey, label, ai }: { ekey: string; label: string; ai:
       <div className="easy-h">💡 쉬운 풀이 <span className="ai-note">주석 문장만으로</span></div>
       {st.state === 'loading' && <Waiting text="풀이 중…" />}
       {st.state === 'error' && <div className="ai-err">⚠️ {st.err} <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></div>}
-      {st.state === 'idle' && !has && <p className="desc muted plain-none">풀이 준비 중</p>}
+      {st.state === 'idle' && !has && <p className="desc muted plain-none">풀이 준비 중{enough && <> · <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></>}</p>}
       {has && <p className="plain-p">{v!.plain.map(l => l.ko).join(' ')} <span className="easy-src">{whoOf(v!.plain)}</span></p>}
       {has && v!.why && (
         <div className="why-row">

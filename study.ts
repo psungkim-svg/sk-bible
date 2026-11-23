@@ -11,7 +11,7 @@ import { getHeads } from './headings';
 import { cacheGet, cacheSet } from './aicache';
 export { cacheGet, cacheSet };
 // v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
-export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', who: 'sk-ai-who-v1', bi: 'sk-ai-bi-v1', easy: 'sk-ai-easy-v1', sum: 'sk-ai-sum-v1', plain: 'sk-ai-plain-v1' };
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', who: 'sk-ai-who-v1', bi: 'sk-ai-bi-v1', easy: 'sk-ai-easy-v1', sum: 'sk-ai-sum-v2', plain: 'sk-ai-plain-v1' };
 
 /** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
 export function deviceId() {
@@ -465,11 +465,11 @@ export async function askChapBg(book: number, chapter: number, signal?: AbortSig
 /* ---------- v1.4 📝 읽기 전 요약 (장 맨 위, 1절 위) ----------
    틴데일 스터디 노트의 그 장 해설에서 "이 장에 무슨 일이 있고 무슨 말을 하는가"를 2~3문장 골라 쉬운 말로 번역
    (틴데일에 그 장이 없으면 JFB) · 해석·교훈·적용 문장은 고르지 않음 · 근거가 없으면 비워 둠
-   ※ 서버 키 x|s|책.장 = 저녁 미리 만들기와 같은 키 */
+   ※ 서버 키 x|s2|책.장 = 저녁 미리 만들기와 같은 키 */
 export interface SumAi { pts: Pt[]; who?: string; none?: boolean }
 export const SUM_SRC = [{ id: 'tyndale', name: '틴데일 스터디 노트' }, { id: 'jamieson-fausset-brown', name: 'JFB 주석' }];
 export const sumFocus = (name: string, chapter: number, unit: string, heads: string) =>
-  `${name} ${chapter}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${heads ? ' (흐름: ' + heads + ')' : ''}. 처음부터 끝까지 고르게. 해석 논쟁 · 교훈 · 적용 · 원어 설명 문장은 고르지 말 것`;
+  `${name} ${chapter}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${heads ? ' (흐름: ' + heads + ')' : ''}. 처음부터 끝까지 고르게. 사건·내용·흐름을 말하는 문장만. 낱말 뜻 · 번역 · 원어 · 사본 · 학자들 견해 · 해석 논쟁 · 교훈 · 적용 문장은 고르지 말 것`;
 export async function askChapSum(book: number, chapter: number, signal?: AbortSignal): Promise<SumAi> {
   const key = `${book}.${chapter}`;
   const hit = cacheGet<SumAi>(NS.sum, key);
@@ -486,7 +486,7 @@ export async function askChapSum(book: number, chapter: number, signal?: AbortSi
   const heads = getHeads(book, chapter).map(h => h.title).join(', ');
   const r = await ask<{ items: Pt[] }>({
     step: 'extract', style: 'easy', q: `${BOOKS[book].name} ${chapter}${unit} 읽기 전 요약`, who: src.who, source: src.text,
-    focus: sumFocus(BOOKS[book].name, chapter, unit, heads), n: '2~3', max: 3, ck: `s|${key}`,
+    focus: sumFocus(BOOKS[book].name, chapter, unit, heads), n: '2~4', max: 4, ck: `s2|${key}`,
   }, signal);
   const out: SumAi = { pts: r.items || [], who: src.who };
   if (!out.pts.length) out.none = true;
@@ -582,8 +582,7 @@ export async function askPlain(key: string, label: string, ai: VerseAi, signal?:
   const r = await ask<PlainAi>({ step: 'plain', q: label, pts, ck: `p|v|${key}` }, signal);
   const ok = (l?: PlainLine | null) => !!(l && l.ko && l.who?.length);
   const out: PlainAi = { plain: (r.plain || []).filter(ok), why: ok(r.why) ? r.why : null };
-  if (out.plain.length >= 2) cacheSet(NS.plain, key, out);
-  else out.plain = [];
+  if (out.plain.length >= 1) cacheSet(NS.plain, key, out);
   return out;
 }
 
