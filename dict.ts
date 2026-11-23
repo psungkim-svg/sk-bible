@@ -59,7 +59,7 @@ export function chapterDict(d: DictData, g: GeoData | null, book: number, chapte
   const c = d.ch[`${book}.${chapter}`] || [];
   for (let i = 0; i < c.length; i += 2) {
     const t = d.t[c[i]];
-    if (!t || seen.has(t[0])) continue;
+    if (!t || t[1] === 'W' || seen.has(t[0])) continue; // v1.2.3 옛 말·낯선 말은 안 보임 (자료는 그대로)
     seen.add(t[0]);
     out.push({ name: t[0], cat: t[1], text: t[2], v: c[i + 1] });
   }
@@ -96,7 +96,7 @@ export function bookDict(d: DictData, g: GeoData | null, book: number, max = 14)
   for (const ti of d.bk[String(book)] || []) {
     if (out.length >= max) break;
     const t = d.t[ti];
-    if (seen.has(t[0])) continue;
+    if (t[1] === 'W' || seen.has(t[0])) continue;
     seen.add(t[0]);
     out.push({ name: t[0], cat: t[1], text: t[2] });
   }
@@ -111,11 +111,13 @@ export function lookupDict(d: DictData, g: GeoData | null, q: string): DictItem[
     || (s.length >= 2 && name.replace(/\s/g, '') === s.replace(/\s/g, ''));
   const out: DictItem[] = [];
   const seen = new Set<string>();
-  d.t.forEach(t => { if (hit(t[0]) && !seen.has(t[0])) { seen.add(t[0]); out.push({ name: t[0], cat: t[1], text: t[2] }); } });
+  d.t.forEach(t => { if (t[1] !== 'W' && hit(t[0]) && !seen.has(t[0])) { seen.add(t[0]); out.push({ name: t[0], cat: t[1], text: t[2] }); } });
   if (g) {
+    // "지경 · 바알 · 셀라"처럼 보통 낱말로 더 많이 쓰는 이름은 같은 이름의 작은 마을을 보여 주지 않음
+    const words = new Set(d.t.filter(t => t[1] === 'W').map(t => t[0]));
     const texts = new Map<string, Set<string>>();
     g.pl.forEach((p, i) => {
-      if (!hit(p[0]) || seen.has(p[0]) || !d.pm[i]) return;
+      if (words.has(p[0]) || !hit(p[0]) || seen.has(p[0]) || !d.pm[i]) return;
       const set = texts.get(p[0]) || new Set<string>();
       set.add(d.pm[i]);
       texts.set(p[0], set);

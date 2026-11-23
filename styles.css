@@ -961,3 +961,57 @@ html, body { touch-action: pan-x pan-y; }
 .fs-badge { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 30; pointer-events: none;
   background: rgba(0, 0, 0, .72); color: #fff; padding: 10px 18px; border-radius: 14px; font-size: 20px; font-weight: 600; white-space: nowrap; }
 .fs-badge b { font-size: 30px; margin: 0 2px 0 6px; color: #ffcb05; }
+
+/* ================= 3단계: 해설 탭 순서 · 접는 칸 ================= */
+.fold { margin: 8px 0; }
+.fold-btn { width: 100%; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); color: var(--text); font-size: var(--menu); font-weight: 700; text-align: left; line-height: 1.25; }
+.fold-t { flex: none; }
+.fold-note { flex: 1; min-width: 0; font-size: calc(var(--menu) * .75); font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold-btn .chev { flex: none; color: var(--accent); font-size: .8em; }
+.fold.open .fold-btn { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.fold-body { border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 6px 10px 10px; }
+.fold-body .orig-kor { margin: 0; border: none; padding: 0; background: none; }
+.ex-main .easy-box { margin-top: 0; }
+.qa-item { margin: 0 0 4px; }
+.qa-q { width: 100%; display: flex; align-items: flex-start; gap: 6px; padding: 5px 0; text-align: left; font-weight: 700; line-height: 1.4; color: var(--text); }
+.qa-q .chev { flex: none; margin-top: .3em; color: var(--accent); font-size: .75em; }
+.qa-a { border-left: 3px solid var(--accent); margin: 0 0 8px 4px; padding: 2px 0 2px 10px; line-height: var(--dlh, 1.45); }
+/* ⚖️ 해석이 갈리는 곳 — 맨 위 */
+.debate-top { margin: 0 0 10px; padding: 8px 12px 6px; border-radius: 12px; border: 2px solid var(--accent); background: var(--accent-soft); }
+.debate-h { font-weight: 800; color: var(--accent); margin-bottom: 4px; text-align: left; }
+.debate-top .deep-issue { text-align: left; }
+.debate-item + .debate-item { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; }
+.debate-top .deep-issue { font-weight: 700; margin-bottom: 2px; }
+
+/* ================= v1.3.2 장 맨 위: 📝 읽기 전 요약 + [장 전체 더 알아보기 ▸] ================= */
+.sum-box { margin: -2px 0 8px; padding: 8px 12px 6px; border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; background: var(--accent-soft); font-size: var(--desc); line-height: 1.6; word-break: keep-all; text-align: left; }
+.sum-h { display: flex; align-items: baseline; gap: 8px; font-weight: 700; color: var(--accent); font-size: var(--menu); margin-bottom: 2px; }
+.sum-src { margin-left: auto; font-weight: 500; font-size: .78em; opacity: .7; }
+.sum-box .pt-list { margin-top: 2px; }
+.sum-box .pt-list .pt { margin-bottom: 3px; }
+.sum-flow { margin: 2px 0 2px; line-height: 1.6; }
+.sum-flow b { font-weight: 600; color: var(--accent); font-size: .9em; }
+.chap-more { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cm-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; text-align: left; font-size: var(--menu); line-height: 1.3; }
+.cm-t { flex: none; font-weight: 700; color: var(--accent); }
+.cm-note { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8em; opacity: .6; }
+.cm-btn .chev { flex: none; color: var(--accent); }
+.chap-more.open .cm-btn { border-bottom: 1px solid var(--line); }
+.cm-body { padding: 8px 8px 2px; }
+.cm-sec { margin: 0 0 8px; }
+.cm-sec .cr-btn { width: 100%; justify-content: space-between; text-align: left; padding: 8px 10px; }
+.cm-sec .cr-t { display: flex; flex-direction: column; white-space: normal; }
+.cr-sub { font-size: .76em; font-weight: 500; opacity: .7; margin-top: 2px; white-space: normal; }
+.cm-sec .cr-btn.open { border-radius: 10px 10px 0 0; outline: 0; }
+.cm-body .bg-card { margin: 0; }
+.cm-body .word-box { margin-bottom: 8px; }
+
+/* v1.3.3 형광펜 한 가지(노랑)만 — 예전에 다른 색으로 칠한 절도 노랑으로 보임 (저장된 자료는 그대로) */
+.verse.hl-green, .verse.hl-blue, .verse.hl-pink { background: var(--hl-yellow); }
+.selbar-actions > button.hl-on { color: var(--accent); }
+
+/* v1.3.3 💡 쉬운 풀이 + ⭐ 왜 중요한가 */
+.plain-box .plain-p { margin: 4px 0 2px; line-height: var(--dlh, 1.6); text-align: left; word-break: keep-all; }
+.plain-box .plain-none { margin: 4px 0 2px; }
+.plain-box .why-row { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--line); }
+.plain-box .why-h { font-weight: 700; color: var(--accent); font-size: var(--menu); }

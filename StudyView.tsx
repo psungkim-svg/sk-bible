@@ -3,7 +3,7 @@ import { BibleData } from './bible';
 import { goTo } from './store';
 import { parseRef } from './bible';
 import {
-  askEasy, askLex, askTerm, runDeepVerse, type EasyAi, easyInputs, type DeepProgress, askGrounded, cacheGet, cacheSet, COMMENTARY_SHORT, getXrefs, LexAi, NS, passageLabel, TermAi, VerseAi,
+  askEasy, askLex, askPlain, type PlainAi, type GDebate, type GQa, askTerm, runDeepVerse, type EasyAi, easyInputs, type DeepProgress, askGrounded, cacheGet, cacheSet, COMMENTARY_SHORT, getXrefs, LexAi, NS, passageLabel, TermAi, VerseAi,
   XRef, xrefLabel, XREF_MB, xrefReady, xrefText,
 } from './study';
 import { PtList } from './Pt';
@@ -53,13 +53,14 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
   );
   const body = (
     <div className="study-body" key={v.join(',')}>
-      {/* 번역 비교(새번역 · BSB)는 해설 탭에서만, 관련 구절 · 낱말 탭은 개역개정만 짧게 */}
-      <div className="orig-kor">
-        <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
-        {tab === 'explain' && <TrCompare book={book} chapter={chapter} verses={v} />}
-      </div>
+      {/* 해설 탭: 번역 비교는 아래 버튼 안에 접어 둠 · 관련 구절 · 낱말 탭은 개역개정만 짧게 */}
+      {tab !== 'explain' && (
+        <div className="orig-kor">
+          <TrRow name="개역개정" verses={v} texts={v.map(x => ch[x - 1])} />
+        </div>
+      )}
       {/* 해설 · 관련 구절은 미리 만들어 두고, 낱말 탭은 처음 열 때 만듦 */}
-      <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v}
+      <div hidden={tab !== 'explain'}><ExplainTab data={data} book={book} chapter={chapter} verses={v} kor={v.map(x => ch[x - 1])}
         onGo={r => { onClose(); goTo(page, { book: r.book, chapter: r.chapter, verse: r.verse ?? 1 }); }} /></div>
       <div hidden={tab !== 'xref'}><XrefTab data={data} book={book} chapter={chapter} verses={v} onOpen={x => { onClose(); goTo(page, { book: x.book, chapter: x.chapter, verse: x.verse }); }} /></div>
       <div hidden={tab !== 'lex'}>{seen.lex && <LexTab data={data} book={book} chapter={chapter} verses={v} />}</div>
@@ -69,7 +70,7 @@ export default function StudyView({ data, book, chapter, verses, page, onClose, 
   if (sheet) {
     return (
       <DwellCtx.Provider value={1000}>
-        <div className={'vsheet' + (tall ? ' tall' : '')}>
+        <div className={'vsheet study' + (tall ? ' tall' : '')}>
           <button className="vs-grip" onClick={() => setTall(t => !t)} aria-label={tall ? '카드 줄이기' : '카드 늘리기'}><span /></button>
           <div className="vs-scroll">{body}</div>
           {/* 복사 · 이전 절 · 탭은 카드 아래쪽에 (엄지로 누르기 쉽게) */}
@@ -226,7 +227,7 @@ export function EasySummary({ kind, ekey, label, ai }: { kind: 'c' | 'v'; ekey: 
   if (st.state === 'idle' && !st.v?.lines.length) return null;
   return (
     <div className="easy-box">
-      <div className="easy-h">📖 쉽게 정리 <span className="ai-note">아래 주석 문장만으로</span></div>
+      <div className="easy-h">📖 쉽게 정리 <span className="ai-note">주석 문장만으로</span></div>
       {st.state === 'loading' && <Waiting text="정리 중…" />}
       {st.state === 'error' && <div className="ai-err">⚠️ {st.err}</div>}
       {st.v && st.v.lines.length > 0 && (
@@ -238,12 +239,99 @@ export function EasySummary({ kind, ekey, label, ai }: { kind: 'c' | 'v'; ekey: 
   );
 }
 
+/** v1.3.3 💡 쉬운 풀이(2~3문장) + ⭐ 왜 중요한가(1문장) — 구절 해설 맨 위 (📖 쉽게 정리 대신) */
+export function PlainBox({ ekey, label, ai }: { ekey: string; label: string; ai: VerseAi }) {
+  const [st, setSt] = useState<{ v?: PlainAi; state: 'loading' | 'idle' | 'error'; err?: string }>(() => {
+    const hit = cacheGet<PlainAi>(NS.plain, ekey);
+    return hit ? { v: hit, state: 'idle' } : { state: 'loading' };
+  });
+  const [n, setN] = useState(0);
+  const enough = easyInputs(ai).length >= 2;
+  useEffect(() => {
+    const hit = n === 0 && cacheGet<PlainAi>(NS.plain, ekey);
+    if (hit) { setSt({ v: hit, state: 'idle' }); return; }
+    if (!enough) { setSt({ state: 'idle' }); return; }
+    const ctl = new AbortController();
+    setSt({ state: 'loading' });
+    askPlain(ekey, label, ai, ctl.signal, n > 0)
+      .then(v => { if (!ctl.signal.aborted) setSt({ v, state: 'idle' }); })
+      .catch(e => { if (!ctl.signal.aborted) setSt({ state: 'error', err: (e as Error).message }); });
+    return () => ctl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ekey, enough, n]);
+  const v = st.v;
+  const has = !!v && v.plain.length > 0;
+  const whoOf = (ls: { who: string[] }[]) => [...new Set(ls.flatMap(l => l.who))].map(shortWho).join(' · ');
+  return (
+    <div className="easy-box plain-box">
+      <div className="easy-h">💡 쉬운 풀이 <span className="ai-note">주석 문장만으로</span></div>
+      {st.state === 'loading' && <Waiting text="풀이 중…" />}
+      {st.state === 'error' && <div className="ai-err">⚠️ {st.err} <button className="link-btn" onClick={() => setN(x => x + 1)}>다시 시도</button></div>}
+      {st.state === 'idle' && !has && <p className="desc muted plain-none">풀이 준비 중</p>}
+      {has && <p className="plain-p">{v!.plain.map(l => l.ko).join(' ')} <span className="easy-src">{whoOf(v!.plain)}</span></p>}
+      {has && v!.why && (
+        <div className="why-row">
+          <div className="why-h">⭐ 왜 중요한가</div>
+          <p className="plain-p">{v!.why.ko} <span className="easy-src">{whoOf([v!.why])}</span></p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Waiting({ text }: { text: string }) {
   return <div className="deep-wait"><div className="spinner small" /> {text}</div>;
 }
 
-/** 주석가별 · 궁금증 · 해석이 갈리는 곳 — 구절 해설과 장 해설이 함께 씀 */
-export function GroundedBody({ ai, prog, titles }: { ai: VerseAi; prog: DeepProgress | null; titles: { comm: string; qa: string } }) {
+/* ---------- ⚖️ 해석이 갈리는 곳: 실제로 다를 때만 ----------
+   - 서로 다른 주석가의 견해가 2개 이상
+   - 견해끼리 말이 많이 겹치면(같은 말 반복 · 같은 결론) 숨김
+   - 조금이라도 애매하면 숨기는 쪽 */
+function bigrams(t: string) {
+  const s = t.replace(/[\s.,·:;!?"'()\[\]“”‘’—-]+/g, '');
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+function words(t: string) { return new Set(t.toLowerCase().match(/[a-z]{4,}/g) || []); }
+function overlap(a: Set<string>, b: Set<string>) {
+  if (!a.size || !b.size) return 1;
+  let n = 0;
+  a.forEach(x => { if (b.has(x)) n++; });
+  return n / Math.min(a.size, b.size);
+}
+export function realDebates(ds: GDebate[] | undefined): GDebate[] {
+  return (ds || []).flatMap(d => {
+    if (!d.issue?.trim()) return [];
+    const seen = new Set<string>();
+    const vs = (d.views || []).filter(v => v.who && v.ko?.trim() && !seen.has(v.who) && (seen.add(v.who), true));
+    if (vs.length < 2) return [];
+    for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) {
+      if (overlap(bigrams(vs[i].ko), bigrams(vs[j].ko)) > 0.45) return [];
+      if (vs[i].en && vs[j].en && overlap(words(vs[i].en), words(vs[j].en)) > 0.5) return [];
+    }
+    return [{ ...d, views: vs }];
+  });
+}
+
+/** ⚖️ 해석이 갈리는 곳 — 있으면 해설 맨 위에 (중요하니까) */
+export function DebateBox({ debates }: { debates: GDebate[] }) {
+  if (!debates.length) return null;
+  return (
+    <div className="debate-top">
+      <div className="debate-h">⚖️ 해석이 갈리는 곳 <span className="ai-note">주석가마다 다르게 봄</span></div>
+      {debates.map((d, i) => (
+        <div key={i} className="debate-item">
+          <div className="deep-issue">{d.issue}</div>
+          <PtList pts={d.views} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 주석가별 · 궁금증 — 장 해설이 씀 (해석이 갈리는 곳은 맨 위 DebateBox로) */
+export function GroundedBody({ ai, prog, titles, noDebates }: { ai: VerseAi; prog: DeepProgress | null; titles: { comm: string; qa: string }; noDebates?: boolean }) {
   const commWait = prog ? prog.comm.filter(c => c.state === 'wait').map(c => c.who) : [];
   return (
     <>
@@ -261,9 +349,9 @@ export function GroundedBody({ ai, prog, titles }: { ai: VerseAi; prog: DeepProg
             <div key={i} className="deep-qa"><div className="deep-q">Q. {x.q}</div><div className="deep-a"><span className="pt-src">{x.who}</span><PtList pts={x.pts} /></div></div>
           ))}</>
       )}
-      {ai.debates.length > 0 && (
+      {!noDebates && realDebates(ai.debates).length > 0 && (
         <><div className="ai-sec">⚖️ 해석이 갈리는 곳</div>
-          {ai.debates.map((d, i) => (
+          {realDebates(ai.debates).map((d, i) => (
             <div key={i} className="deep-box">
               <div className="deep-issue">{d.issue}</div>
               <PtList pts={d.views} />
@@ -274,35 +362,92 @@ export function GroundedBody({ ai, prog, titles }: { ai: VerseAi; prog: DeepProg
   );
 }
 
-function ExplainTab({ data, book, chapter, verses, onGo }: { data: BibleData; book: number; chapter: number; verses: number[]; onGo: Go }) {
+/** 눌러서 펼치는 칸 (▶ 닫힘 · ▼ 열림) */
+function Fold({ title, note, children, open: init = false }: { title: string; note?: string; children: ReactNode; open?: boolean }) {
+  const [open, setOpen] = useState(init);
+  return (
+    <div className={'fold' + (open ? ' open' : '')}>
+      <button className="fold-btn" onClick={() => setOpen(o => !o)}>
+        <span className="fold-t">{title}</span>{note && <span className="fold-note">{note}</span>}<Chev open={open} />
+      </button>
+      {open && <div className="fold-body">{children}</div>}
+    </div>
+  );
+}
+
+/** ❓ 궁금증 풀이 — 질문만 보이고, 누르면 답이 펼쳐짐 */
+function QaItem({ x }: { x: GQa }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={'qa-item' + (open ? ' open' : '')}>
+      <button className="qa-q" onClick={() => setOpen(o => !o)}><Chev open={open} /><span>{x.q}</span></button>
+      {open && <div className="qa-a"><span className="pt-src">{x.who}</span><PtList pts={x.pts} /></div>}
+    </div>
+  );
+}
+
+/* 💡 해설 탭 순서: (⚖️ 해석이 갈리는 곳이 있으면 맨 위) ① 쉬운 풀이 → ③ 궁금증 풀이(접힘) → ④ 이 구절에 대해 묻기 → ⑤ 번역 비교(버튼) → ⑥ 더 알아보기(버튼: 주석가별 · 출처)
+   (② 왜 중요한가는 6단계에서) */
+function ExplainTab({ data, book, chapter, verses, kor, onGo }: { data: BibleData; book: number; chapter: number; verses: number[]; kor: string[]; onGo: Go }) {
+  void onGo;
   const key = `${book}:${chapter}:${verses.join(',')}`;
   const { val, prog, state, err, update, again } = useDeep(NS.verse, key, (s, on) => runDeepVerse(data, book, chapter, verses, s, on));
   const ai = prog ? prog.ai : val;
   const busy = state === 'loading';
   const failed = prog ? prog.comm.filter(c => c.state === 'fail').length + (prog.qa === 'fail' ? 1 : 0) : 0;
-  const empty = !busy && ai && !ai.comm.length && !ai.qa.length && !ai.debates.length;
+  const debates = ai ? realDebates(ai.debates) : [];
+  const empty = !busy && ai && !ai.comm.length && !ai.qa.length && !debates.length;
+  const commWait = prog ? prog.comm.filter(c => c.state === 'wait').map(c => c.who) : [];
+  const waitText = !prog ? '준비 중…' : prog.collecting && commWait.length === prog.comm.length ? '주석 자료를 모으는 중…' : commWait.length ? `${commWait.join(' · ')} 번역 중…` : '정리 중…';
   return (
     <>
-      <div className="ai-card deep">
-        <div className="ai-head">💡 깊은 해설 <span className="ai-note">주석 원문 번역</span></div>
-        {ai && !busy && !prog && <EasySummary kind="v" ekey={key} label={passageLabel(book, chapter, verses)} ai={ai} />}
+      <div className="ai-card deep ex-main">
         {state === 'error' && !val && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={again}>다시 시도</button></div>}
-        {busy && !prog && !val && <Waiting text="준비 중…" />}
-        {ai && (
+        {busy && <Waiting text={waitText} />}
+        {/* ⚖️ 해석이 갈리는 곳 — 있으면 맨 위 */}
+        {!busy && <DebateBox debates={debates} />}
+        {/* ① 쉬운 풀이 */}
+        {ai && !busy && !prog && <PlainBox ekey={key} label={passageLabel(book, chapter, verses)} ai={ai} />}
+        {/* ③ 궁금증 풀이 */}
+        {ai && ai.qa.length > 0 && (
           <>
-            <GroundedBody ai={ai} prog={prog} titles={{ comm: '📚 주석가들은 이렇게 봅니다', qa: '❓ 궁금증 풀이' }} />
-            {empty && <p className="desc">이 구절을 다룬 주석이 없습니다 · 📘 장 해설을 보세요</p>}
-            {(failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부 실패 · 아래 ↻ 다시 해설</div>}
-            <div className="ai-foot">
-              {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '받는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
-            </div>
+            <div className="ai-sec">❓ 궁금증 풀이</div>
+            {ai.qa.map((x, i) => <QaItem key={i} x={x} />)}
           </>
         )}
+        {empty && <p className="desc">이 구절을 다룬 주석이 없습니다 · 📘 장 깊은 해설을 보세요</p>}
       </div>
 
+      {/* ④ 이 구절에 대해 묻기 */}
       {val && !busy && <AskMore data={data} book={book} chapter={chapter} verses={verses} ai={val} update={update} />}
 
-      <p className="desc small src-line">{COMMENTARY_SHORT}</p>
+      {/* ⑤ 번역 비교 */}
+      <Fold title="📖 번역 비교" note="개역개정 · 새번역 · BSB">
+        <div className="orig-kor">
+          <TrRow name="개역개정" verses={verses} texts={kor} />
+          <TrCompare book={book} chapter={chapter} verses={verses} />
+        </div>
+      </Fold>
+
+      {/* ⑥ 더 알아보기 */}
+      <Fold title="🔎 더 알아보기" note="주석가별 해설 · 출처">
+        {ai && ai.comm.length > 0 && (
+          <>
+            <div className="ai-sec">📚 주석가들은 이렇게 봅니다</div>
+            {ai.comm.map((c, i) => (
+              <div key={i} className="deep-box"><div className="deep-who">{c.who}</div><PtList pts={c.pts} /></div>
+            ))}
+          </>
+        )}
+        {busy && commWait.length > 0 && <Waiting text={waitText} />}
+        {ai && (failed > 0 || (!prog && val?.partial)) && <div className="ai-err">일부 실패 · ↻ 다시 해설</div>}
+        {ai && (
+          <div className="ai-foot">
+            {busy ? <span className="muted">{val && !prog ? '다시 받는 중…' : '받는 중…'}</span> : <button onClick={again}>↻ 다시 해설</button>}
+          </div>
+        )}
+        <p className="desc small src-line">{COMMENTARY_SHORT}</p>
+      </Fold>
     </>
   );
 }

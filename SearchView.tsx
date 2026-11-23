@@ -164,7 +164,7 @@ export default function SearchView({ data, active }: { data: BibleData; active: 
           </button>
         )}
 
-        {/* ----- 📖 지명·낱말 사전 (v1.10) ----- */}
+        {/* ----- 🗺️ 지명·단위 사전 (v1.10 · v1.2.3부터 옛 말 뺌) ----- */}
         {dictHits.length > 0 && (
           <div className="dict-card">
             <div className="dict-h">📖 사전</div>

@@ -302,6 +302,21 @@ const EASY_PROMPT = `Reasoning: low
 - 주석끼리 의견이 다르면 "~라고 보는 주석도 있습니다"처럼 갈린다는 것을 그대로 씁니다.
 - 순서: 이 본문이 무엇에 관한 것인지 → 중요한 내용 → (있으면) 어려운 곳의 뜻.`;
 
+const PLAIN_PROMPT = `Reasoning: low
+당신은 성경 주석 문장들을 중학생도 알아듣게 풀어 주는 편집자입니다.
+아래 '문장들'은 실제 주석에서 원문 확인을 거친 문장과 그 번역입니다. 문장마다 [S번호]와 주석 이름이 붙어 있습니다.
+할 일 두 가지 (이 문장들에 있는 내용만 가지고):
+1) plain — 이 구절이 무슨 뜻인지 2~3문장으로 쉽게 풀이합니다. 이어서 읽으면 한 단락이 되게 씁니다.
+2) why — 이 구절이 왜 중요한가를 1문장으로 씁니다. 이 구절이 그 책이나 성경 전체의 흐름·가르침 안에서 맡는 역할(예: 무엇의 시작인지, 무엇을 처음 보여 주는지, 어떤 약속과 이어지는지)입니다. 문장들에 그런 내용이 없으면 "why": null.
+반드시 아래 형식의 JSON 하나만 출력하세요. 다른 글은 절대 쓰지 마세요.
+{"plain":[{"ko":"쉬운 한국어 문장","src":["S1","S3"]}],"why":{"ko":"한 문장","src":["S2"]}}
+규칙:
+- 모든 문장은 '문장들'에 실제로 있는 내용만 씁니다. 거기 없는 사실·해석·숫자·인물·배경을 하나도 더하지 않습니다.
+- 각 문장의 src 에는 근거가 된 [S번호]를 모두 적습니다. 근거를 댈 수 없는 문장은 쓰지 않습니다.
+- 적용, 교훈("우리도 ~해야 합니다", "우리에게 주는 교훈"), 기도, 권면, 감탄은 쓰지 않습니다. why 도 오늘 우리 삶에 대한 말이 아니라 성경 안에서의 의미만 씁니다.
+- 중학생이 한 번에 알아듣는 쉬운 말, 존댓말(~입니다). 한 문장은 짧게 (60자 안팎). 어려운 한자어·학술 용어는 쉬운 말로.
+- 주석끼리 의견이 다르면 "~라고 보는 주석도 있습니다"처럼 갈린다는 것을 그대로 씁니다.`;
+
 /** 영어 비교용: 소문자 · 따옴표 통일 · 글자와 숫자만 */
 function normEn(s) {
   return String(s ?? '').toLowerCase()
@@ -537,6 +552,27 @@ async function doEasy(env, body) {
   return { lines };
 }
 
+/** v1.3.3 💡 쉬운 풀이(2~3문장) + ⭐ 왜 중요한가(1문장) — 쉽게 정리와 같은 방식 · AI 한 번 · 근거 없는 문장은 버림 */
+const BAN_KO = /(야 합니다|야 하겠|합시다|바랍니다|기도하|기도합|아멘|우리도 |본받|교훈|우리 삶|오늘날 우리|오늘 우리)/;
+async function doPlain(env, body) {
+  const q = clip(body.q, 120).trim();
+  const pts = easyPts(body.pts);
+  if (pts.length < 2) return { plain: [], why: null };
+  const ids = new Map(pts.map(p => [p.id, p]));
+  const ask = `본문: ${q}\n\n문장들:\n${pts.map(p => `[${p.id}] (${p.who}) ${p.ko}\n    원문: ${p.en}`).join('\n')}`;
+  const out = await runLLM(env, PLAIN_PROMPT, ask, { max_tokens: 4000 });
+  const one = l => {
+    const ko = clip(l?.ko, 240).trim();
+    const src = [...new Set((Array.isArray(l?.src) ? l.src : []).map(x => String(x).replace(/[\[\]\s]/g, '')))].filter(x => ids.has(x));
+    if (!ko || !/[가-힣]/.test(ko) || !src.length || BAN_KO.test(ko)) return null;
+    return { ko, who: [...new Set(src.map(x => ids.get(x).who))], src };
+  };
+  const plain = (Array.isArray(out?.plain) ? out.plain : []).slice(0, 5).map(one).filter(Boolean).slice(0, 3);
+  if (plain.length < 2) return { plain: [], why: null };   // 근거가 모자라면 "풀이 준비 중"
+  const why = out?.why ? one(out.why) : null;
+  return { plain, why };
+}
+
 async function handleAsk(request, env) {
   if (request.headers.get('x-sk-app') !== '1') return json({ error: 'forbidden' }, 403);
   if (!env.AI) return json({ error: 'AI 연결(binding)이 없습니다. wrangler.jsonc 를 확인하세요.' }, 500);
@@ -548,7 +584,8 @@ async function handleAsk(request, env) {
   try {
     /* ---- v1.9 근거 있는 해설 ---- */
     if (body.step === 'extract') {
-      return grounded(env, request, `x|${clip(body.ck, 160)}`, () => doExtract(env, body), r => r.items.length > 0);
+      // v1.4 📝 읽기 전 요약(s|책.장)은 장마다 한 번만 만들고 모두가 같이 쓰므로 하루 한도에서 뺌
+      return grounded(env, request, `x|${clip(body.ck, 160)}`, () => doExtract(env, body), r => r.items.length > 0, { free: /^s\|\d+\.\d+$/.test(clip(body.ck, 40)) });
     }
     if (body.step === 'gqa') {
       if (!srcList(body.sources).length) return json({ qa: [], debates: [] });
@@ -570,6 +607,10 @@ async function handleAsk(request, env) {
         }
         return { quotes };
       }, () => false);
+    }
+    if (body.step === 'plain') {
+      if (easyPts(body.pts).length < 2) return json({ plain: [], why: null });
+      return grounded(env, request, `${clip(body.ck, 160)}`, () => doPlain(env, body), r => r.plain.length >= 2, { free: true });
     }
     if (body.step === 'easy') {
       if (easyPts(body.pts).length < 2) return json({ lines: [] });
@@ -989,6 +1030,38 @@ const deepKeys = (b, c) => [keyOf(`q|c|${b}.${c}`), `d:${b}.${c}`];
 const lightDone = (has, b, c) => has.has(`g:${b}.${c}`);
 const deepDone = (has, b, c) => has.has(keyOf(`q|c|${b}.${c}`)) || has.has(`d:${b}.${c}`);
 
+/* ---- v1.4 📝 읽기 전 요약 (앱 study.ts 의 askChapSum / sumFocus 와 같게 · 키 x|s|책.장) ---- */
+const sumKeys = (b, c) => [keyOf(`x|s|${b}.${c}`), `s:${b}.${c}`];
+const sumDone = (has, b, c) => has.has(keyOf(`x|s|${b}.${c}`)) || has.has(`s:${b}.${c}`);
+const SUM_SRC_W = [['tyndale', '틴데일 스터디 노트'], ['jamieson-fausset-brown', 'JFB 주석']];
+async function cronSum(env, st, b, c) {
+  const ck = `${b}.${c}`;
+  st.log.push(`sum ${ck}`);
+  let src = null;
+  for (const [id, name] of SUM_SRC_W) {
+    const j = await getJson(`${HELLOAO}/c/${id}/${USFM_[b]}/${c}.json`).catch(() => null);
+    const text = Array.isArray(j?.chapter?.content) ? cronExcerpt(j.chapter.content, 6000) : '';
+    if (text.length > 200) { src = { who: name, text }; break; }
+  }
+  if (!src) { await markPre(env, `s:${ck}`, 1); return true; }   // 자료 없음 → 앱은 소제목 흐름만
+  const unit = b === 18 ? '편' : '장';
+  const { heads } = await bsbChapter(b, c);
+  const hs = heads.map(h => h.replace(/^\d+절 /, '')).join(', ');
+  st.calls++;
+  const r = await doExtract(env, {
+    style: 'easy', who: src.who, source: src.text, n: '2~3', max: 3,
+    focus: `${KO_NAME[b]} ${c}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${hs ? ' (흐름: ' + hs + ')' : ''}. 처음부터 끝까지 고르게. 해석 논쟁 · 교훈 · 적용 · 원어 설명 문장은 고르지 말 것`,
+  });
+  if (r.items.length) await sharedPut(env, keyOf(`x|s|${ck}`), r);
+  else await markPre(env, `s:${ck}`, 2);
+  return true;
+}
+async function sumSafe(env, st, [b, c]) {
+  const r = await soft(st, `sum ${b}.${c}`, () => cronSum(env, st, b, c));
+  if (r === 'fail') await markPre(env, `s:${b}.${c}`, 2);
+  sumKeys(b, c).forEach(k => st.has.add(k));
+}
+
 /* ---- v1.11 책 소개 부분 (앱 study.ts 의 BI_PARTS 와 같게) ---- */
 const BI_W = {
   w: { re: /^(author|date|recipients?|recpients|readers|audience|place and date|occasion and place)/i, n: '2~3', max: 3, size: 5000,
@@ -1174,10 +1247,12 @@ async function cronStep(env, st) {
     try { rows = (await env.DB.prepare('SELECT k FROM reads WHERE t > ? ORDER BY t DESC LIMIT 20').bind(Date.now() - 3 * 864e5).all()).results || []; } catch { /* 무시 */ }
     const seen = new Set();
     st.nexts = rows.map(r => r.k.split('.').map(Number)).map(([b, c]) => nextOf(b, c)).filter(x => x && !seen.has(x.join('.')) && seen.add(x.join('.')));
-    st.has = await haveKeys(env, st.nexts.flatMap(([b, c]) => [...lightKeys(b, c), ...deepKeys(b, c)]));
+    st.has = await haveKeys(env, st.nexts.flatMap(([b, c]) => [...lightKeys(b, c), ...sumKeys(b, c), ...deepKeys(b, c)]));
   }
   const n1 = st.nexts.find(([b, c]) => !lightDone(st.has, b, c));
   if (n1) { await lightSafe(env, st, n1); return true; }
+  const s1 = st.nexts.find(([b, c]) => !sumDone(st.has, b, c));
+  if (s1) { await sumSafe(env, st, s1); return true; }
   // ② 장 깊은 해설 (하루 최대 3개): 다음 장 먼저, 없으면 많이 읽는 책 순서로
   if (st.deepLeft === undefined) {
     let n = 0;
@@ -1196,9 +1271,17 @@ async function cronStep(env, st) {
       return true;
     }
   }
-  // ③ 많이 읽는 책 순서로 배경
-  const t = await popScan(env, st, 'pc', lightKeys, lightDone);
-  if (t) { await lightSafe(env, st, t); return true; }
+  // ③ 많이 읽는 책 순서로 📝 읽기 전 요약(장마다 AI 1번)과 배경을 번갈아
+  st.alt = !st.alt;
+  for (const kind of st.alt ? ['sum', 'light'] : ['light', 'sum']) {
+    if (kind === 'sum') {
+      const s2 = await popScan(env, st, 'ps', sumKeys, sumDone);
+      if (s2) { await sumSafe(env, st, s2); return true; }
+    } else {
+      const t = await popScan(env, st, 'pc', lightKeys, lightDone);
+      if (t) { await lightSafe(env, st, t); return true; }
+    }
+  }
   return false;
 }
 async function lightSafe(env, st, [b, c]) {

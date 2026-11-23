@@ -4,7 +4,7 @@ import { BOOKS } from './books';
 import { getHeads } from './headings';
 import { goTo } from './store';
 import { chapterLinks, COMMENTARY_SHORT, NS, runDeepChapter, XRef, xrefLabel, xrefText } from './study';
-import { EasySummary, Go, GroundedBody, useDeep, Waiting } from './StudyView';
+import { DebateBox, EasySummary, Go, GroundedBody, realDebates, useDeep, Waiting } from './StudyView';
 import { useBackClose } from './utils';
 
 /* ================================================================
@@ -46,6 +46,7 @@ export default function ChapterStudy({ data, book, chapter, page, onClose, onAft
       <div className="study-body">
         <div className="ai-card deep">
           <div className="ai-head">📘 {BOOKS[book].name} {chapter}{unit} 깊은 해설</div>
+          {ai && !busy && !prog && <DebateBox debates={realDebates(ai.debates)} />}
           {ai && !busy && !prog && <EasySummary kind="c" ekey={`${book}.${chapter}`} label={`${BOOKS[book].name} ${chapter}${unit}`} ai={ai} />}
 
           {flow.length > 0 && (
@@ -62,7 +63,7 @@ export default function ChapterStudy({ data, book, chapter, page, onClose, onAft
 
           {state === 'error' && !val && <div className="ai-err">⚠️ {err} <button className="link-btn" onClick={again}>다시 시도</button></div>}
           {busy && !prog && !val && <Waiting text="준비 중…" />}
-          {ai && <GroundedBody ai={ai} prog={prog} titles={{ comm: '📚 주석가들은 이 장을 이렇게 봅니다', qa: '❓ 어려운 곳 풀이' }} />}
+          {ai && <GroundedBody ai={ai} prog={prog} titles={{ comm: '📚 주석가들은 이 장을 이렇게 봅니다', qa: '❓ 어려운 곳 풀이' }} noDebates={!busy && !prog} />}
 
           <ChapterLinks data={data} book={book} chapter={chapter} count={max} onGo={go} />
 

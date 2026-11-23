@@ -30,7 +30,7 @@ export function WordBox({ book, chapter, onVerse }: { book: number; chapter: num
   return (
     <div className={'word-box' + (open ? ' open' : '')}>
       <button className="wb-head" onClick={() => setSettings({ wordsOpen: !open })}>
-        <span className="wb-title">📖 지명·낱말</span>
+        <span className="wb-title">🗺️ 지명·단위</span>
         {!open && <span className="wb-names">{names.slice(0, 6).join(' · ')}{names.length > 6 ? ` 외 ${names.length - 6}` : ''}</span>}
         <span className="wb-arrow"><Chev open={open} /></span>
       </button>

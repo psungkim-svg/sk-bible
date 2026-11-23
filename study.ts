@@ -11,7 +11,7 @@ import { getHeads } from './headings';
 import { cacheGet, cacheSet } from './aicache';
 export { cacheGet, cacheSet };
 // v1.9: 근거 있는 해설(주석 원문 문장 + 번역)로 바뀌어 저장 이름도 새로
-export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', who: 'sk-ai-who-v1', bi: 'sk-ai-bi-v1', easy: 'sk-ai-easy-v1' };
+export const NS = { find: 'sk-ai-find-v2', chap: 'sk-ai-chap-v3', verse: 'sk-ai-verse-v6', lex: 'sk-ai-lex-v1', bg: 'sk-ai-bg-v4', term: 'sk-ai-term-v1', who: 'sk-ai-who-v1', bi: 'sk-ai-bi-v1', easy: 'sk-ai-easy-v1', sum: 'sk-ai-sum-v1', plain: 'sk-ai-plain-v1' };
 
 /** 이 폰의 이름표 (아무 정보 없는 무작위 글자 — 하루 사용 횟수를 폰마다 세는 데만 씀) */
 export function deviceId() {
@@ -462,6 +462,38 @@ export async function askChapBg(book: number, chapter: number, signal?: AbortSig
   return out;
 }
 
+/* ---------- v1.4 📝 읽기 전 요약 (장 맨 위, 1절 위) ----------
+   틴데일 스터디 노트의 그 장 해설에서 "이 장에 무슨 일이 있고 무슨 말을 하는가"를 2~3문장 골라 쉬운 말로 번역
+   (틴데일에 그 장이 없으면 JFB) · 해석·교훈·적용 문장은 고르지 않음 · 근거가 없으면 비워 둠
+   ※ 서버 키 x|s|책.장 = 저녁 미리 만들기와 같은 키 */
+export interface SumAi { pts: Pt[]; who?: string; none?: boolean }
+export const SUM_SRC = [{ id: 'tyndale', name: '틴데일 스터디 노트' }, { id: 'jamieson-fausset-brown', name: 'JFB 주석' }];
+export const sumFocus = (name: string, chapter: number, unit: string, heads: string) =>
+  `${name} ${chapter}${unit}을 읽기 전에 미리 알면 좋은 이 ${unit}의 큰 흐름 — 이 ${unit}에서 무슨 일이 일어나고 무슨 말을 하는가${heads ? ' (흐름: ' + heads + ')' : ''}. 처음부터 끝까지 고르게. 해석 논쟁 · 교훈 · 적용 · 원어 설명 문장은 고르지 말 것`;
+export async function askChapSum(book: number, chapter: number, signal?: AbortSignal): Promise<SumAi> {
+  const key = `${book}.${chapter}`;
+  const hit = cacheGet<SumAi>(NS.sum, key);
+  if (hit) return hit;
+  if (!navigator.onLine) throw new Error('인터넷에 연결되어 있지 않습니다');
+  let src: { who: string; text: string } | null = null;
+  for (const c of SUM_SRC) {
+    const items = await fetchChapter(c.id, book, chapter).catch(() => null);
+    const text = items ? chapterExcerpt(items, 6000) : '';
+    if (text.length > 200) { src = { who: c.name, text }; break; }
+  }
+  if (!src) { const none: SumAi = { pts: [], none: true }; cacheSet(NS.sum, key, none); return none; }
+  const unit = book === 18 ? '편' : '장';
+  const heads = getHeads(book, chapter).map(h => h.title).join(', ');
+  const r = await ask<{ items: Pt[] }>({
+    step: 'extract', style: 'easy', q: `${BOOKS[book].name} ${chapter}${unit} 읽기 전 요약`, who: src.who, source: src.text,
+    focus: sumFocus(BOOKS[book].name, chapter, unit, heads), n: '2~3', max: 3, ck: `s|${key}`,
+  }, signal);
+  const out: SumAi = { pts: r.items || [], who: src.who };
+  if (!out.pts.length) out.none = true;
+  cacheSet(NS.sum, key, out);
+  return out;
+}
+
 /* ---------- v1.11 📘 책 소개 (중학생도 알 수 있게) — 틴데일 책 소개에서 골라 쉬운 말로 번역 ----------
    w = 누가·언제·어디서·누구에게 / y = 왜 썼나 / s = 줄거리
    (틴데일 소개가 없는 사사기는 JFB 주석의 책 머리말에서) */
@@ -535,6 +567,23 @@ export async function askEasy(kind: 'c' | 'v', key: string, label: string, ai: V
   const r = await ask<EasyAi>({ step: 'easy', q: label, pts, ck: `e|${kind}|${key}` }, signal);
   const out: EasyAi = { lines: (r.lines || []).filter(l => l.ko && l.who?.length) };
   if (out.lines.length) cacheSet(NS.easy, key, out);
+  return out;
+}
+
+/* ---------- v1.3.3 💡 쉬운 풀이 + ⭐ 왜 중요한가 (구절 해설 맨 위 · 쉽게 정리 대신) ----------
+   쉽게 정리와 같은 재료(원문 확인된 주석 문장)만 가지고 AI 한 번 · 문장마다 출처 · 근거가 모자라면 비움("풀이 준비 중") */
+export interface PlainLine { ko: string; who: string[] }
+export interface PlainAi { plain: PlainLine[]; why: PlainLine | null }
+export async function askPlain(key: string, label: string, ai: VerseAi, signal?: AbortSignal, force = false): Promise<PlainAi> {
+  const hit = !force && cacheGet<PlainAi>(NS.plain, key);
+  if (hit) return hit;
+  const pts = easyInputs(ai);
+  if (pts.length < 2) return { plain: [], why: null };
+  const r = await ask<PlainAi>({ step: 'plain', q: label, pts, ck: `p|v|${key}` }, signal);
+  const ok = (l?: PlainLine | null) => !!(l && l.ko && l.who?.length);
+  const out: PlainAi = { plain: (r.plain || []).filter(ok), why: ok(r.why) ? r.why : null };
+  if (out.plain.length >= 2) cacheSet(NS.plain, key, out);
+  else out.plain = [];
   return out;
 }
 

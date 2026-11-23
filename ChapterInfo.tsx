@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Chev } from './ToolIcons';
 import { BibleData } from './bible';
 import { BOOK_INFO } from './bookinfo';
 import { BOOKS } from './books';
-import { askBookBg, askBookIntro, askChapBg, BgAi, BiAi, BiPart, cacheGet, NS } from './study';
+import { askBookBg, askBookIntro, askChapBg, askChapSum, BgAi, BiAi, BiPart, cacheGet, NS, SumAi } from './study';
+import { getHeads } from './headings';
 import { bookDict, DictData, isPlaceTerm, loadDictGeo } from './dict';
 import { DictList } from './Words';
 import type { GeoData } from './geo';
@@ -170,6 +171,59 @@ export function BookIntro({ data, book, compact, onGo }: { data: BibleData; book
           <p className="desc small">저자·연대: 전통적 견해 · 설명: {who.replace(/ \(.*\)$/, '')} · 위치: 대략</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ================================================================
+   v1.4 장 맨 위: 📝 읽기 전 요약(항상 보임) + [장 전체 더 알아보기 ▸]
+   ================================================================ */
+/** 📝 읽기 전 요약 — 1절 바로 위. 장을 1.5초 넘게 펴 두었을 때만 AI로 만듦 (넘겨 보기만 할 때는 안 씀) */
+export function ChapSummary({ book, chapter, active }: { book: number; chapter: number; active: boolean }) {
+  const key = `${book}.${chapter}`;
+  const [st, setSt] = useState<{ v?: SumAi; state: 'idle' | 'loading' | 'error'; err?: string }>(() => ({ v: cacheGet<SumAi>(NS.sum, key), state: 'idle' }));
+  useEffect(() => {
+    const hit = cacheGet<SumAi>(NS.sum, key);
+    if (hit) { setSt({ v: hit, state: 'idle' }); return; }
+    setSt({ state: 'idle' });
+    if (!active || !navigator.onLine) return;
+    const ctl = new AbortController();
+    const t = setTimeout(() => {
+      setSt({ state: 'loading' });
+      askChapSum(book, chapter, ctl.signal)
+        .then(v => { if (!ctl.signal.aborted) setSt({ v, state: 'idle' }); })
+        .catch(e => { if (!ctl.signal.aborted) setSt({ state: 'error', err: (e as Error).message }); });
+    }, 1500);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [key, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  const heads = getHeads(book, chapter);
+  const ok = st.v && st.v.pts.length > 0;
+  return (
+    <div className="sum-box">
+      <div className="sum-h">📝 읽기 전 요약{ok && st.v?.who && <span className="sum-src">{st.v.who.replace(/\s*(주석|스터디 노트)$/, '')}</span>}</div>
+      {ok && <PtList pts={st.v!.pts} />}
+      {!ok && st.state === 'loading' && <div className="busy" style={{ padding: '2px 0' }}><div className="spinner small" /> 요약 준비 중…</div>}
+      {/* 요약이 아직 없으면(인터넷 없음 · 준비 중 · 자료 없음) 개역개정 소제목으로 흐름만 */}
+      {!ok && st.state !== 'loading' && (heads.length > 0
+        ? <p className="sum-flow"><span className="muted">흐름 · </span>{heads.map((h, i) => <span key={i}>{i > 0 && ' → '}<b>{h.v}절</b> {h.title}</span>)}</p>
+        : <p className="desc muted">풀이 준비 중</p>)}
+      {!ok && st.state === 'error' && /한도|다 썼/.test(st.err || '') && <p className="desc small muted">{st.err}</p>}
+    </div>
+  );
+}
+
+/** [장 전체 더 알아보기 ▸] — 장의 배경 · 지명·단위 · 지도 · 인물 · 장 깊은 해설 · (1장) 책 소개 */
+export function ChapterMore({ book, chapter, children }: { book: number; chapter: number; children: (open: boolean) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setOpen(false); }, [book, chapter]);
+  return (
+    <div className={'chap-more' + (open ? ' open' : '')}>
+      <button className="cm-btn" onClick={() => setOpen(o => !o)}>
+        <span className="cm-t">{book === 18 ? '편' : '장'} 전체 더 알아보기</span>
+        <span className="cm-note">배경 · 지명 · 지도 · 인물 · 깊은 해설{chapter === 1 ? ' · 책 소개' : ''}</span>
+        <Chev open={open} />
+      </button>
+      {open && <div className="cm-body">{children(open)}</div>}
     </div>
   );
 }

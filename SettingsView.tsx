@@ -173,9 +173,9 @@ export default function SettingsView({ active }: { active: boolean }) {
           <Toggle label="읽는 동안 화면 꺼짐 방지" value={s.keepAwake} onChange={v => set('keepAwake', v)} />
           <Toggle label="좌우로 밀어서 장 넘기기" value={s.swipe} onChange={v => set('swipe', v)} />
           <Toggle label="검색 결과가 없으면 AI로 찾기" value={s.aiSearch} onChange={v => set('aiSearch', v)} />
-          <Toggle label="📜 장 맨 위 배경 보기 버튼" value={s.showTopic} onChange={v => set('showTopic', v)} />
+          <Toggle label="📜 장 전체 더 알아보기 안 배경·지도·인물" value={s.showTopic} onChange={v => set('showTopic', v)} />
           <Toggle label="단락 소제목" value={s.showHeadings} onChange={v => set('showHeadings', v)} />
-          <Toggle label="📖 장 맨 위 지명·낱말 풀이" value={s.showWords} onChange={v => set('showWords', v)} />
+          <Toggle label="🗺️ 장 전체 더 알아보기 안 지명·단위" value={s.showWords} onChange={v => set('showWords', v)} />
           <Toggle label="해설 영어 원문 늘 펼치기" value={s.showOrig} onChange={v => set('showOrig', v)} />
           <div className="row"><span>페이지 개수 <span className="muted">(6개부터는 아래 페이지 버튼 줄을 옆으로 밀어서)</span></span></div>
           <div className="seg small page-count">
